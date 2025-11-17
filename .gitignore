@@ -1,0 +1,10 @@
+/__pycache__
+/ikea_availability.db
+/migrations
+/node_modules
+/package-lock.json
+/package.json
+/venv
+*.pyc
+*.pyo
+.env

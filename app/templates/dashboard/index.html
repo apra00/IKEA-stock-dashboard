@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – IKEA Availability{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Dashboard</h2>
+  {% if current_user.can_edit_items %}
+  <form method="post" action="{{ url_for('dashboard.check_all') }}">
+    <button class="btn btn-outline-light btn-sm bg-primary" type="submit">
+      <i class="bi bi-arrow-clockwise me-1"></i>Run availability check
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Total Items</div>
+        <div class="stat-value">{{ total_items }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Items in Stock</div>
+        <div class="stat-value text-success">{{ available_items }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Last Check</div>
+        <div class="stat-value-sm">{{ last_check.strftime('%Y-%m-%d %H:%M') or "Never" }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h4 class="mb-3">Latest activity</h4>
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Time</th>
+            <th>Item</th>
+            <th>Total stock</th>
+            <th>Probability</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for snap in latest_snapshots %}
+          <tr>
+            <td>{{ snap.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+              <a href="{{ url_for('items.detail', item_id=snap.item.id) }}">
+                {{ snap.item.name }}
+              </a>
+            </td>
+            <td>{{ snap.total_stock if snap.total_stock is not none else "-" }}</td>
+            <td>{{ snap.probability_summary }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="4" class="text-center text-muted py-3">No history yet.</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

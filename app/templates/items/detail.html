@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}{{ item.name }} – IKEA Availability{% endblock %}
+
+{% block head_extra %}
+<script>
+  window.ITEM_HISTORY = {
+    labels: {{ chart_labels|tojson }},
+    stock: {{ chart_stock|tojson }}
+  };
+</script>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-0">{{ item.name }}</h2>
+    <div class="text-muted">
+      Product ID: {{ item.product_id }} · Country: {{ item.country_code }}
+      · Stores: {{ item.store_ids or "All" }}
+    </div>
+  </div>
+  <div class="text-end">
+    {% if current_user.can_edit_items %}
+    <form method="post" action="{{ url_for('items.check_single', item_id=item.id) }}" class="d-inline">
+      <button class="btn btn-outline-primary btn-sm" type="submit">
+        <i class="bi bi-arrow-clockwise me-1"></i>Update availability
+      </button>
+    </form>
+    <a href="{{ url_for('items.edit_item', item_id=item.id) }}" class="btn btn-outline-secondary btn-sm">
+      Edit
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Current Stock</div>
+        <div class="stat-value">
+          {{ item.last_stock if item.last_stock is not none else "-" }}
+        </div>
+        <div class="stat-label mt-2">Probability</div>
+        <div class="stat-value-sm">{{ item.last_probability or "-" }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Last Checked</div>
+        <div class="stat-value-sm">
+          {% if item.last_checked %}
+            {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
+          {% else %}
+            Never
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Notification</div>
+        <div class="stat-value-sm">
+          {% if item.notify_enabled and item.notify_threshold is not none %}
+            Enabled (≥ {{ item.notify_threshold }})
+          {% else %}
+            Disabled
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEW: live per-store availability -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Live per-store availability</strong>
+    <small class="text-muted">
+      Data fetched in real-time from ikea-availability-checker
+    </small>
+  </div>
+  <div class="card-body p-0">
+    {% if live_error %}
+      <div class="alert alert-danger m-3">{{ live_error }}</div>
+    {% elif not live_data %}
+      <div class="alert alert-warning m-3 mb-3">
+        No live availability data returned for this product.
+      </div>
+    {% else %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Store</th>
+              <th>Stock</th>
+              <th>Probability</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in live_data %}
+            <tr>
+              <td>{{ row.store['name'] or row.storeName or '-' }}</td>
+              <td>{{ row.stock if row.stock is not none else '-' }}</td>
+              <td>{{ row.probability or '-' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-4 shadow-sm">
+  <div class="card-header">
+    <strong>Historical stock (last {{ chart_history|length }} samples)</strong>
+  </div>
+  <div class="card-body">
+    <canvas id="stockHistoryChart" height="120"></canvas>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header">
+    <strong>History table</strong>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-striped mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Time</th>
+            <th>Total stock</th>
+            <th>Probability</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for snap in history %}
+          <tr>
+            <td>
+              {% if snap.timestamp %}
+                {{ snap.timestamp.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ snap.total_stock if snap.total_stock is not none else "-" }}</td>
+            <td>{{ snap.probability_summary }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="3" class="text-center text-muted py-3">
+              No history yet. Run an availability check to create snapshots.
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

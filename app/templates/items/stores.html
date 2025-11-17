@@ -1,0 +1,67 @@
+<!-- app/templates/items/stores.html -->
+{% extends "base.html" %}
+{% block title %}Stores – IKEA Availability{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Stores by country</h2>
+</div>
+
+<form class="row g-3 mb-3" method="get">
+  <div class="col-auto">
+    <label class="col-form-label">Country code</label>
+  </div>
+  <div class="col-auto">
+    <input type="text"
+           name="country"
+           class="form-control"
+           placeholder="e.g. hu, de, at"
+           value="{{ country or '' }}"
+           required>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary" type="submit">
+      <i class="bi bi-search me-1"></i>Show stores
+    </button>
+  </div>
+</form>
+
+{% if country %}
+  {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+  {% elif not stores %}
+    <div class="alert alert-warning">
+      No stores returned for country code <strong>{{ country }}</strong>.
+    </div>
+  {% else %}
+    <div class="card shadow-sm">
+      <div class="card-header">
+        <strong>Stores in "{{ country }}" ({{ stores|length }})</strong>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Name</th>
+                <th>buCode</th>
+                <th>City</th>
+                <th>Country</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for store in stores %}
+              <tr>
+                <td>{{ store.name or store.storeName }}</td>
+                <td>{{ store.buCode }}</td>
+                <td>{{ store.city or '-' }}</td>
+                <td>{{ store.countryCode }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

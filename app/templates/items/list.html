@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Items – IKEA Availability{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Items</h2>
+  {% if current_user.can_edit_items %}
+  <a href="{{ url_for('items.add_item') }}" class="btn btn-primary">
+    <i class="bi bi-plus-circle me-1"></i>New item
+  </a>
+  {% endif %}
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            {# Helper macro-like pattern for sortable headers #}
+            {% macro sort_link(label, col_key) -%}
+              {%- set is_active = (sort_by == col_key) -%}
+              {%- set next_dir = 'desc' if is_active and sort_dir == 'asc' else 'asc' -%}
+              <a href="{{ url_for('items.list_items', sort=col_key, dir=next_dir) }}"
+                 class="text-decoration-none text-reset">
+                {{ label }}
+                {% if is_active %}
+                  {% if sort_dir == 'asc' %}
+                    <i class="bi bi-caret-up-fill small"></i>
+                  {% else %}
+                    <i class="bi bi-caret-down-fill small"></i>
+                  {% endif %}
+                {% endif %}
+              </a>
+            {%- endmacro %}
+
+            <th>{{ sort_link('Added at', 'added_at') }}</th>
+            <th>{{ sort_link('Name', 'name') }}</th>
+            <th>{{ sort_link('Product ID', 'product_id') }}</th>
+            <th>{{ sort_link('Country', 'country_code') }}</th>
+            <th>{{ sort_link('Stores', 'stores') }}</th>
+            <th>{{ sort_link('Active', 'active') }}</th>
+            <th>{{ sort_link('Last stock', 'last_stock') }}</th>
+            <th>Probability</th>
+            <th>{{ sort_link('Last checked', 'last_checked') }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for item in items %}
+          <tr>
+            <td>
+              {% if item.added_at %}
+                {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              <a href="{{ url_for('items.detail', item_id=item.id) }}">
+                {{ item.name }}
+              </a>
+            </td>
+            <td>{{ item.product_id }}</td>
+            <td>{{ item.country_code }}</td>
+            <td>{{ item.store_ids or "All" }}</td>
+            <td>
+              {% if item.is_active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Inactive</span>
+              {% endif %}
+            </td>
+            <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
+            <td>{{ item.last_probability or "-" }}</td>
+            <td>
+              {% if item.last_checked %}
+                {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="text-end">
+              {% if current_user.can_edit_items %}
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="{{ url_for('items.edit_item', item_id=item.id) }}">
+                Edit
+              </a>
+              <form method="post"
+                    action="{{ url_for('items.delete_item', item_id=item.id) }}"
+                    class="d-inline"
+                    onsubmit="return confirm('Delete this item?');">
+                <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-3">No items yet.</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
