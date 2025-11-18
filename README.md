@@ -9,6 +9,7 @@ It provides real-time store-by-store availability, historical tracking, notifica
 
 ### ✔ Product Monitoring
 - Add unlimited IKEA items
+- Organize them into simple folders/categories
 - Live per-store stock availability
 - Historical tracking with chart
 - Automatic stock checks (manual or webhook)

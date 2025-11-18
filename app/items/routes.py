@@ -151,6 +151,7 @@ def add_item():
                     item=None,
                     default_country_code=country_code,
                     default_store_ids=store_ids,
+                    default_folder_name=folder_name,
                 )
 
         if not name or not product_id or not country_code:
@@ -173,7 +174,7 @@ def add_item():
             flash("Item created.", "success")
             return redirect(url_for("items.list_items"))
 
-    # GET: prefill with last item's country/store to "remember" settings
+    # GET: prefill with last item's country/store/folder to "remember" settings
     last_item = (
         Item.query.filter_by(user_id=current_user.id)
         .order_by(Item.id.desc())
@@ -181,12 +182,16 @@ def add_item():
     )
     default_country_code = last_item.country_code if last_item else ""
     default_store_ids = last_item.store_ids if last_item and last_item.store_ids else ""
+    default_folder_name = (
+        last_item.folder.name if last_item and last_item.folder else ""
+    )
 
     return render_template(
         "items/form.html",
         item=None,
         default_country_code=default_country_code,
         default_store_ids=default_store_ids,
+        default_folder_name=default_folder_name,
     )
 
 

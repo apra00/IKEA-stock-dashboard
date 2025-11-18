@@ -1,26 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit' if item else 'Add' }} Item – IKEA Availability{% endblock %}
+
 {% block content %}
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    const pidInput = document.querySelector("input[name='product_id']");
-    if (!pidInput) return;
-
-    pidInput.addEventListener("blur", function () {
-        let v = pidInput.value;
-        if (!v) return;
-
-        // Remove all dots and spaces
-        v = v.replace(/\./g, "").replace(/\s+/g, "");
-
-        // Only keep digits
-        v = v.replace(/\D/g, "");
-
-        pidInput.value = v;
-    });
-});
-</script>
-
 <div class="row justify-content-center">
   <div class="col-md-6">
     <div class="card shadow-sm">
@@ -29,7 +10,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <form method="post">
           <div class="mb-3">
             <label class="form-label">Name</label>
-            <input name="name" class="form-control"
+            <input id="item-name" name="name" class="form-control"
                    value="{{ item.name if item else '' }}" required>
           </div>
 
@@ -47,10 +28,9 @@ document.addEventListener("DOMContentLoaded", function () {
             <div class="collapse mt-2" id="productIdHelp">
               <ul class="small mb-0">
                 <li>Open your local IKEA website and search for the product.</li>
-                <li>Open the product page and look for “Article number” / “Product number”.</li>
-                <li>It is usually in the end of the url link of the product.</li>
-                <li>The number is usually 8 digits (often shown with dots, e.g. 123.456.78).</li>
-                <li>Enter it here as digits only, e.g. <code>12345678</code>.</li>
+                <li>Open the product page and look for “Article number”.</li>
+                <li>It is often shown like <code>123.456.78</code>.</li>
+                <li>When you leave this field, it will be converted to <code>12345678</code>.</li>
               </ul>
             </div>
           </div>
@@ -81,9 +61,10 @@ document.addEventListener("DOMContentLoaded", function () {
           <div class="mb-3">
             <label class="form-label">Folder</label>
             <input name="folder_name" class="form-control"
-                   value="{{ item.folder.name if item and item.folder else '' }}">
+                   value="{% if item and item.folder %}{{ item.folder.name }}{% else %}{{ default_folder_name|default('') }}{% endif %}">
             <div class="form-text">
               Optional. Items are grouped by folder per user. Enter a name to create/use that folder.
+              The last used folder will be suggested automatically.
             </div>
           </div>
 
@@ -123,4 +104,30 @@ document.addEventListener("DOMContentLoaded", function () {
     </div>
   </div>
 </div>
+
+<!-- Auto-remove dots and non-digits from product ID when leaving the field -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const pidInput = document.querySelector("input[name='product_id']");
+    if (pidInput) {
+        pidInput.addEventListener("blur", function () {
+            let v = pidInput.value;
+            if (!v) return;
+
+            v = v.replace(/\./g, "").replace(/\s+/g, "");
+            v = v.replace(/\D/g, "");
+            pidInput.value = v;
+        });
+    }
+
+    // >>> NEW FEATURE: Autofocus Name field when adding a new item <<<
+    {% if not item %}
+    const nameInput = document.getElementById("item-name");
+    if (nameInput) {
+        setTimeout(() => nameInput.focus(), 50);
+    }
+    {% endif %}
+});
+</script>
+
 {% endblock %}
