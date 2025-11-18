@@ -10,6 +10,8 @@
   {% endif %}
 </div>
 
+{% set total_cols = 11 if current_user.is_admin else 10 %}
+
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -49,9 +51,25 @@
           </tr>
         </thead>
         <tbody>
-        {% for item in items %}
-          <tr>
-            <td>
+        {% if folders %}
+          {% for folder_name, folder_items in folders.items() %}
+            {% set folder_idx = loop.index %}
+            <!-- Folder header row -->
+            <tr class="table-secondary folder-header"
+                data-folder-group="folder-{{ folder_idx }}"
+                style="cursor: pointer;">
+              <td colspan="{{ total_cols }}">
+                <i class="bi bi-chevron-down me-2 folder-toggle-icon"></i>
+                <strong>{{ folder_name }}</strong>
+                <span class="text-muted ms-2">({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})</span>
+              </td>
+            </tr>
+
+            <!-- Items in this folder -->
+            {% for item in folder_items %}
+            <tr class="folder-rows"
+                data-folder-group="folder-{{ folder_idx }}">
+              <td>
               {% if item.added_at %}
                 {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
               {% else %}
@@ -59,58 +77,96 @@
               {% endif %}
             </td>
             <td>
-              <a href="{{ url_for('items.detail', item_id=item.id) }}">
-                {{ item.name }}
-              </a>
-            </td>
-            <td>{{ item.product_id }}</td>
-            <td>{{ item.country_code }}</td>
-            <td>{{ item.folder.name if item.folder else '-' }}</td>
-            <td>{{ item.store_ids or "All" }}</td>
-            <td>
-              {% if item.is_active %}
-                <span class="badge bg-success">Active</span>
-              {% else %}
-                <span class="badge bg-secondary">Inactive</span>
+                <a href="{{ url_for('items.detail', item_id=item.id) }}">
+                  {{ item.name }}
+                </a>
+              </td>
+              <td>{{ item.product_id }}</td>
+              <td>{{ item.country_code }}</td>
+              <td>{{ item.folder.name if item.folder else '-' }}</td>
+              <td>{{ item.store_ids or "All" }}</td>
+              <td>
+                {% if item.is_active %}
+                  <span class="badge bg-success">Active</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inactive</span>
+                {% endif %}
+              </td>
+              <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
+              <td>{{ item.last_probability or "-" }}</td>
+              <td>
+                {% if item.last_checked %}
+                  {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              {% if current_user.is_admin %}
+              <td>{{ item.user.username if item.user else '-' }}</td>
               {% endif %}
-            </td>
-            <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
-            <td>{{ item.last_probability or "-" }}</td>
-            <td>
-              {% if item.last_checked %}
-                {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
-              {% else %}
-                -
-              {% endif %}
-            </td>
-            {% if current_user.is_admin %}
-            <td>{{ item.user.username if item.user else '-' }}</td>
-            {% endif %}
-            <td class="text-end">
-              {% if current_user.can_edit_items %}
-              <a class="btn btn-sm btn-outline-secondary"
-                 href="{{ url_for('items.edit_item', item_id=item.id) }}">
-                Edit
-              </a>
-              <form method="post"
-                    action="{{ url_for('items.delete_item', item_id=item.id) }}"
-                    class="d-inline"
-                    onsubmit="return confirm('Delete this item?');">
-                <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
+              <td class="text-end">
+                {% if current_user.can_edit_items %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="{{ url_for('items.edit_item', item_id=item.id) }}">
+                  Edit
+                </a>
+                <form method="post"
+                      action="{{ url_for('items.delete_item', item_id=item.id) }}"
+                      class="d-inline"
+                      onsubmit="return confirm('Delete this item?');">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
         {% else %}
           <tr>
-            <td colspan="{{ 10 if current_user.is_admin else 9 }}" class="text-center text-muted py-3">
+            <td colspan="{{ total_cols }}" class="text-center text-muted py-3">
               No items yet.
             </td>
           </tr>
-        {% endfor %}
+        {% endif %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll(".folder-header").forEach(function (header) {
+    header.addEventListener("click", function () {
+      const group = header.dataset.folderGroup;
+      const rows = document.querySelectorAll(
+        ".folder-rows[data-folder-group='" + group + "']"
+      );
+
+      let anyVisible = false;
+      rows.forEach(function (row) {
+        if (!row.classList.contains("d-none")) {
+          anyVisible = true;
+        }
+      });
+
+      // If any are visible, hide all; otherwise show all
+      rows.forEach(function (row) {
+        if (anyVisible) {
+          row.classList.add("d-none");
+        } else {
+          row.classList.remove("d-none");
+        }
+      });
+
+      const icon = header.querySelector(".folder-toggle-icon");
+      if (icon) {
+        icon.classList.toggle("bi-chevron-down", !anyVisible);
+        icon.classList.toggle("bi-chevron-right", anyVisible);
+      }
+    });
+  });
+});
+</script>
+
 {% endblock %}

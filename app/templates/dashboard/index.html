@@ -33,8 +33,13 @@
     <div class="card stat-card">
       <div class="card-body">
         <div class="stat-label">Last Check</div>
-        <div class="stat-value-sm">{{ last_check.strftime('%Y-%m-%d %H:%M') or "Never" }}</div>
-      </div>
+        <div class="stat-value-sm">
+          {% if last_check %}
+            {{ last_check.strftime('%Y-%m-%d %H:%M') }}
+          {% else %}
+            Never
+          {% endif %}
+        </div>      </div>
     </div>
   </div>
 </div>

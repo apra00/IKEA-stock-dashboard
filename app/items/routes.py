@@ -93,8 +93,6 @@ def list_items():
     if sort_by == "folder":
         sort_column = Folder.name
     elif sort_by == "owner":
-        # Owner sort: by username via join in template use-case; keep simple
-        # We'll just fall back to Item.name if not admin
         if current_user.is_admin:
             from ..models import User  # local import to avoid circular
 
@@ -110,9 +108,17 @@ def list_items():
 
     items = query.order_by(sort_column).all()
 
+    # Group items by folder (for collapsible folders in the view)
+    folder_groups = {}
+    for item in items:
+        group_name = item.folder.name if item.folder else "No folder"
+        if group_name not in folder_groups:
+            folder_groups[group_name] = []
+        folder_groups[group_name].append(item)
+
     return render_template(
         "items/list.html",
-        items=items,
+        folders=folder_groups,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
