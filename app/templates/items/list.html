@@ -81,7 +81,7 @@
                   {{ item.name }}
                 </a>
               </td>
-              <td>{{ item.product_id }}</td>
+              <td><a href="https://www.ikea.com/hu/hu/p/{{ item.product_id }}/" target="_blank">{{ item.product_id }}</a></td>
               <td>{{ item.country_code }}</td>
               <td>{{ item.folder.name if item.folder else '-' }}</td>
               <td>{{ item.store_ids or "All" }}</td>
