@@ -11,7 +11,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from ..extensions import db
-from ..models import Item, AvailabilitySnapshot
+from ..models import Item, AvailabilitySnapshot, Folder
 from ..ikea_service import (
     check_item,
     get_stores_for_country,
@@ -28,6 +28,23 @@ def _require_edit_permission():
     return True
 
 
+def _get_or_create_folder_for_user(user_id: int, name: str | None):
+    if not name:
+        return None
+    clean_name = name.strip()
+    if not clean_name:
+        return None
+
+    folder = Folder.query.filter_by(user_id=user_id, name=clean_name).first()
+    if folder:
+        return folder
+
+    folder = Folder(user_id=user_id, name=clean_name)
+    db.session.add(folder)
+    db.session.flush()  # ensure id is available before commit
+    return folder
+
+
 @items_bp.route("/")
 @login_required
 def list_items():
@@ -41,6 +58,8 @@ def list_items():
         "active": Item.is_active,
         "last_stock": Item.last_stock,
         "last_checked": Item.last_checked,
+        "folder": Folder.name,
+        "owner": None,  # handled separately
     }
 
     sort_by = request.args.get("sort")
@@ -64,11 +83,32 @@ def list_items():
     session["items_sort_by"] = sort_by
     session["items_sort_dir"] = sort_dir
 
-    sort_column = allowed_sort_columns[sort_by]
+    # Base query: per-user separation
+    if current_user.is_admin:
+        query = Item.query.outerjoin(Folder)
+    else:
+        query = Item.query.filter_by(user_id=current_user.id).outerjoin(Folder)
+
+    # Sorting
+    if sort_by == "folder":
+        sort_column = Folder.name
+    elif sort_by == "owner":
+        # Owner sort: by username via join in template use-case; keep simple
+        # We'll just fall back to Item.name if not admin
+        if current_user.is_admin:
+            from ..models import User  # local import to avoid circular
+
+            query = query.join(User)
+            sort_column = User.username
+        else:
+            sort_column = Item.name
+    else:
+        sort_column = allowed_sort_columns[sort_by]
+
     if sort_dir == "desc":
         sort_column = sort_column.desc()
 
-    items = Item.query.order_by(sort_column).all()
+    items = query.order_by(sort_column).all()
 
     return render_template(
         "items/list.html",
@@ -89,6 +129,7 @@ def add_item():
         product_id = request.form.get("product_id", "").strip()
         country_code = request.form.get("country_code", "").strip().lower()
         store_ids = request.form.get("store_ids", "").strip()
+        folder_name = request.form.get("folder_name", "").strip()
         is_active = request.form.get("is_active") == "on"
 
         notify_enabled = request.form.get("notify_enabled") == "on"
@@ -109,6 +150,7 @@ def add_item():
         if not name or not product_id or not country_code:
             flash("Name, product ID and country code are required.", "danger")
         else:
+            folder = _get_or_create_folder_for_user(current_user.id, folder_name)
             item = Item(
                 name=name,
                 product_id=product_id,
@@ -117,6 +159,8 @@ def add_item():
                 is_active=is_active,
                 notify_enabled=notify_enabled,
                 notify_threshold=notify_threshold,
+                user_id=current_user.id,
+                folder=folder,
             )
             db.session.add(item)
             db.session.commit()
@@ -124,7 +168,11 @@ def add_item():
             return redirect(url_for("items.list_items"))
 
     # GET: prefill with last item's country/store to "remember" settings
-    last_item = Item.query.order_by(Item.id.desc()).first()
+    last_item = (
+        Item.query.filter_by(user_id=current_user.id)
+        .order_by(Item.id.desc())
+        .first()
+    )
     default_country_code = last_item.country_code if last_item else ""
     default_store_ids = last_item.store_ids if last_item and last_item.store_ids else ""
 
@@ -144,11 +192,17 @@ def edit_item(item_id):
 
     item = Item.query.get_or_404(item_id)
 
+    # Non-admin users can edit only their own items
+    if not current_user.is_admin and item.user_id != current_user.id:
+        flash("You are not allowed to edit this item.", "danger")
+        return redirect(url_for("items.list_items"))
+
     if request.method == "POST":
         item.name = request.form.get("name", "").strip()
         item.product_id = request.form.get("product_id", "").strip()
         item.country_code = request.form.get("country_code", "").strip().lower()
         store_ids = request.form.get("store_ids", "").strip()
+        folder_name = request.form.get("folder_name", "").strip()
         item.store_ids = store_ids or None
         item.is_active = request.form.get("is_active") == "on"
 
@@ -164,6 +218,12 @@ def edit_item(item_id):
 
         item.notify_enabled = notify_enabled
         item.notify_threshold = notify_threshold
+
+        if folder_name:
+            folder = _get_or_create_folder_for_user(item.user_id, folder_name)
+            item.folder = folder
+        else:
+            item.folder = None
 
         if not item.name or not item.product_id or not item.country_code:
             flash("Name, product ID and country code are required.", "danger")
@@ -182,6 +242,11 @@ def delete_item(item_id):
         return redirect(url_for("items.list_items"))
 
     item = Item.query.get_or_404(item_id)
+
+    if not current_user.is_admin and item.user_id != current_user.id:
+        flash("You are not allowed to delete this item.", "danger")
+        return redirect(url_for("items.list_items"))
+
     db.session.delete(item)
     db.session.commit()
     flash("Item deleted.", "info")
@@ -192,6 +257,11 @@ def delete_item(item_id):
 @login_required
 def detail(item_id):
     item = Item.query.get_or_404(item_id)
+
+    if not current_user.is_admin and item.user_id != current_user.id:
+        flash("You are not allowed to view this item.", "danger")
+        return redirect(url_for("items.list_items"))
+
     # last 30 snapshots for chart
     history = (
         AvailabilitySnapshot.query.filter_by(item_id=item.id)
@@ -206,7 +276,7 @@ def detail(item_id):
     .offset(max(0, AvailabilitySnapshot.query.filter_by(item_id=item.id).count() - 30))
     .limit(30)
     .all()
-)
+    )
 
     # Prepare data for chart.js (format timestamps as date + HH:MM)
     chart_labels = [
@@ -237,6 +307,11 @@ def check_single(item_id):
         return redirect(url_for("items.detail", item_id=item_id))
 
     item = Item.query.get_or_404(item_id)
+
+    if not current_user.is_admin and item.user_id != current_user.id:
+        flash("You are not allowed to check this item.", "danger")
+        return redirect(url_for("items.list_items"))
+
     ok, err = check_item(item)
     if ok:
         flash("Availability updated and snapshot saved.", "success")

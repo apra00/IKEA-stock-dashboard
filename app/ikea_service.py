@@ -106,6 +106,8 @@ def _send_threshold_notification(item: Item, total_stock: int, prob_str: str, ti
     subject = f"IKEA stock alert: {item.name} ({item.product_id})"
     body = (
         f"Stock for item '{item.name}' (product {item.product_id}) has reached {total_stock}.\n\n"
+        f"Owner: {item.user.username if item.user else 'Unknown'}\n"
+        f"Folder: {item.folder.name if item.folder else 'None'}\n"
         f"Country: {item.country_code}\n"
         f"Stores filter: {item.store_ids or 'All stores in country'}\n"
         f"Probability summary: {prob_str}\n"
@@ -181,11 +183,19 @@ def check_item(item: Item):
     return True, None
 
 
-def check_all_active_items():
+def check_all_active_items(user=None):
     """
-    Check all active items and append to history.
+    Check all active items.
+    - If user is None: check all active items in the system (used by webhook).
+    - If user is provided and not admin: check only that user's active items.
+    - If user is admin: check all active items.
     """
-    items = Item.query.filter_by(is_active=True).all()
+    query = Item.query.filter_by(is_active=True)
+
+    if user is not None and not user.is_admin:
+        query = query.filter_by(user_id=user.id)
+
+    items = query.all()
     successes = 0
     failures = 0
 
@@ -206,7 +216,6 @@ def get_stores_for_country(country: str):
     data, error = _run_node_stores(country)
     if error or not data:
         return [], error or "No store data."
-    # data is already a list of store objects from ikea-availability-checker
     return data, None
 
 

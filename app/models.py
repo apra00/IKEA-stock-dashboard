@@ -10,8 +10,10 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default="user")  # admin/user/viewer
+    role = db.Column(db.String(20), nullable=False, default="user")  # admin/user
     email = db.Column(db.String(255), nullable=True)  # notification email
+
+    items = db.relationship("Item", backref="user", lazy="dynamic")
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -25,7 +27,22 @@ class User(UserMixin, db.Model):
 
     @property
     def can_edit_items(self) -> bool:
+        # Only admins and normal users; no 'viewer' role anymore
         return self.role in ("admin", "user")
+
+
+class Folder(db.Model):
+    __tablename__ = "folders"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(128), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship("User", backref="folders")
+
+    def __repr__(self):
+        return f"<Folder {self.name} (user={self.user_id})>"
 
 
 class Item(db.Model):
@@ -48,12 +65,21 @@ class Item(db.Model):
     notify_threshold = db.Column(db.Integer, nullable=True)
     last_notified_at = db.Column(db.DateTime, nullable=True)
 
+    # Ownership & folder
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    folder_id = db.Column(db.Integer, db.ForeignKey("folders.id"), nullable=True)
+
+    folder = db.relationship("Folder", backref="items")
+
     history = db.relationship(
         "AvailabilitySnapshot",
         backref="item",
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
+
+    def __repr__(self):
+        return f"<Item {self.name} ({self.product_id}) user={self.user_id}>"
 
 
 class AvailabilitySnapshot(db.Model):

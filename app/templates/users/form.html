@@ -26,7 +26,6 @@
             <select name="role" class="form-select">
               <option value="admin" {% if user and user.role=='admin' %}selected{% endif %}>admin</option>
               <option value="user" {% if not user or user.role=='user' %}selected{% endif %}>user</option>
-              <option value="viewer" {% if user and user.role=='viewer' %}selected{% endif %}>viewer</option>
             </select>
           </div>
           <div class="mb-3">

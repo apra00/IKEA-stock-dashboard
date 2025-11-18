@@ -16,7 +16,6 @@
       <table class="table table-hover mb-0 align-middle">
         <thead class="table-light">
           <tr>
-            {# Helper macro-like pattern for sortable headers #}
             {% macro sort_link(label, col_key) -%}
               {%- set is_active = (sort_by == col_key) -%}
               {%- set next_dir = 'desc' if is_active and sort_dir == 'asc' else 'asc' -%}
@@ -37,11 +36,15 @@
             <th>{{ sort_link('Name', 'name') }}</th>
             <th>{{ sort_link('Product ID', 'product_id') }}</th>
             <th>{{ sort_link('Country', 'country_code') }}</th>
+            <th>{{ sort_link('Folder', 'folder') }}</th>
             <th>{{ sort_link('Stores', 'stores') }}</th>
             <th>{{ sort_link('Active', 'active') }}</th>
             <th>{{ sort_link('Last stock', 'last_stock') }}</th>
             <th>Probability</th>
             <th>{{ sort_link('Last checked', 'last_checked') }}</th>
+            {% if current_user.is_admin %}
+            <th>{{ sort_link('Owner', 'owner') }}</th>
+            {% endif %}
             <th></th>
           </tr>
         </thead>
@@ -62,6 +65,7 @@
             </td>
             <td>{{ item.product_id }}</td>
             <td>{{ item.country_code }}</td>
+            <td>{{ item.folder.name if item.folder else '-' }}</td>
             <td>{{ item.store_ids or "All" }}</td>
             <td>
               {% if item.is_active %}
@@ -79,6 +83,9 @@
                 -
               {% endif %}
             </td>
+            {% if current_user.is_admin %}
+            <td>{{ item.user.username if item.user else '-' }}</td>
+            {% endif %}
             <td class="text-end">
               {% if current_user.can_edit_items %}
               <a class="btn btn-sm btn-outline-secondary"
@@ -96,7 +103,9 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="9" class="text-center text-muted py-3">No items yet.</td>
+            <td colspan="{{ 10 if current_user.is_admin else 9 }}" class="text-center text-muted py-3">
+              No items yet.
+            </td>
           </tr>
         {% endfor %}
         </tbody>

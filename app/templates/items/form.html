@@ -35,8 +35,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
           <div class="mb-3">
             <label class="form-label">Product ID</label>
-            <input name="product_id" class="form-control"
-                   value="{{ item.product_id if item else '' }}" required>
+            <input name="product_id"
+                   class="form-control"
+                   value="{{ item.product_id if item else '' }}"
+                   required>
             <div class="form-text">
               <a class="small" data-bs-toggle="collapse" href="#productIdHelp" role="button">
                 How do I find this on ikea.com?
@@ -46,6 +48,7 @@ document.addEventListener("DOMContentLoaded", function () {
               <ul class="small mb-0">
                 <li>Open your local IKEA website and search for the product.</li>
                 <li>Open the product page and look for “Article number” / “Product number”.</li>
+                <li>It is usually in the end of the url link of the product.</li>
                 <li>The number is usually 8 digits (often shown with dots, e.g. 123.456.78).</li>
                 <li>Enter it here as digits only, e.g. <code>12345678</code>.</li>
               </ul>
@@ -72,6 +75,15 @@ document.addEventListener("DOMContentLoaded", function () {
                    value="{% if item and item.store_ids %}{{ item.store_ids }}{% else %}{{ default_store_ids|default('') }}{% endif %}">
             <div class="form-text">
               Leave empty to check all stores in the country. Use buCode from the Stores page.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Folder</label>
+            <input name="folder_name" class="form-control"
+                   value="{{ item.folder.name if item and item.folder else '' }}">
+            <div class="form-text">
+              Optional. Items are grouped by folder per user. Enter a name to create/use that folder.
             </div>
           </div>
 

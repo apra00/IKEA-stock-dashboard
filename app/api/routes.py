@@ -22,7 +22,7 @@ def _require_api_key():
 def webhook_check():
     """
     Webhook endpoint to trigger stock checks.
-    - POST /api/check  with no body: check all active items
+    - POST /api/check  with no body: check all active items (all users)
     - POST /api/check  { "item_id": 123 } : check single item by id
     - POST /api/check  { "product_id": "80213074" } : check single item by product_id
     """
@@ -46,8 +46,8 @@ def webhook_check():
         ok, err = check_item(item)
         return jsonify({"status": "ok" if ok else "error", "error": err}), 200
 
-    # No specifics: check all active items
-    ok_count, failed_count = check_all_active_items()
+    # No specifics: check all active items for all users
+    ok_count, failed_count = check_all_active_items(None)
     return jsonify(
         {
             "status": "ok",
