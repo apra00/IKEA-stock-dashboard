@@ -66,16 +66,11 @@
 <main class="container py-4">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="toast-container position-fixed top-0 end-0 p-3">
-        {% for cat, msg in messages %}
-          <div class="toast align-items-center text-bg-{{ 'danger' if cat=='danger' else cat }} border-0 show mb-2">
-            <div class="d-flex">
-              <div class="toast-body">
-                {{ msg }}
-              </div>
-              <button type="button" class="btn-close btn-close-white me-2 m-auto"
-                      data-bs-dismiss="toast"></button>
-            </div>
+      <div id="flash-container" class="position-fixed top-0 end-0 p-3" style="z-index: 2000; width: 350px;">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm mb-2" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
           </div>
         {% endfor %}
       </div>
@@ -84,7 +79,18 @@
 
   {% block content %}{% endblock %}
 </main>
-
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const alerts = document.querySelectorAll("#flash-container .alert");
+    alerts.forEach((alert, i) => {
+        // Auto-dismiss after 4 seconds
+        setTimeout(() => {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }, 4000 + (i * 250)); // Stagger animations
+    });
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
