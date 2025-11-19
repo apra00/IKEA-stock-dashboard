@@ -58,13 +58,38 @@
             </div>
           </div>
 
+          <!-- Category selector (formerly "Folder") -->
           <div class="mb-3">
-            <label class="form-label">Folder</label>
-            <input name="folder_name" class="form-control"
+            <label class="form-label">Category</label>
+            <select id="category-select" class="form-select">
+              <option value="__none__">(No category)</option>
+              {% for cat in categories or [] %}
+                {% set is_selected =
+                     (item and item.folder and item.folder.id == cat.id)
+                     or (not item and default_folder_name|default('') == cat.name) %}
+                <option value="{{ cat.name }}" {% if is_selected %}selected{% endif %}>
+                  {{ cat.name }}
+                </option>
+              {% endfor %}
+              <option value="__new__">+ Add new category…</option>
+            </select>
+
+            <input type="hidden"
+                   name="folder_name"
+                   id="folder_name_hidden"
                    value="{% if item and item.folder %}{{ item.folder.name }}{% else %}{{ default_folder_name|default('') }}{% endif %}">
+
+            <div class="mt-2 d-none" id="new-category-wrapper">
+              <input type="text" class="form-control" id="new-category-input"
+                     placeholder="New category name">
+              <div class="form-text">
+                Type a name and it will be created just for you.
+              </div>
+            </div>
+
             <div class="form-text">
-              Optional. Items are grouped by folder per user. Enter a name to create/use that folder.
-              The last used folder will be suggested automatically.
+              Optional. Items are grouped by category per user.
+              The last used category will be suggested automatically.
             </div>
           </div>
 
@@ -105,9 +130,10 @@
   </div>
 </div>
 
-<!-- Auto-remove dots and non-digits from product ID when leaving the field -->
+<!-- Behaviour for product ID cleanup, autofocus and category selector -->
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    // Auto-clean product ID (remove dots and non-digits) on blur
     const pidInput = document.querySelector("input[name='product_id']");
     if (pidInput) {
         pidInput.addEventListener("blur", function () {
@@ -120,13 +146,64 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    // >>> NEW FEATURE: Autofocus Name field when adding a new item <<<
+    // Autofocus Name field when adding a new item
     {% if not item %}
     const nameInput = document.getElementById("item-name");
     if (nameInput) {
         setTimeout(() => nameInput.focus(), 50);
     }
     {% endif %}
+
+    // Category dropdown (with "add new" option)
+    const categorySelect = document.getElementById("category-select");
+    const hiddenFolderName = document.getElementById("folder_name_hidden");
+    const newCategoryWrapper = document.getElementById("new-category-wrapper");
+    const newCategoryInput = document.getElementById("new-category-input");
+
+    function syncCategoryFromSelect() {
+        if (!categorySelect || !hiddenFolderName) return;
+        const val = categorySelect.value;
+
+        if (val === "__new__") {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.remove("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.focus();
+            }
+            hiddenFolderName.value = newCategoryInput ? newCategoryInput.value.trim() : "";
+        } else if (val === "__none__") {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.add("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.value = "";
+            }
+            hiddenFolderName.value = "";
+        } else {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.add("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.value = "";
+            }
+            hiddenFolderName.value = val;
+        }
+    }
+
+    if (categorySelect) {
+        categorySelect.addEventListener("change", syncCategoryFromSelect);
+        // Initial sync on load
+        syncCategoryFromSelect();
+    }
+
+    if (newCategoryInput) {
+        newCategoryInput.addEventListener("input", function () {
+            if (hiddenFolderName) {
+                hiddenFolderName.value = newCategoryInput.value.trim();
+            }
+        });
+    }
 });
 </script>
 

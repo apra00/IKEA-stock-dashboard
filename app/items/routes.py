@@ -108,10 +108,10 @@ def list_items():
 
     items = query.order_by(sort_column).all()
 
-    # Group items by folder (for collapsible folders in the view)
-    folder_groups = {}
+    # Group items by folder/category (for collapsible groups in the view)
+    folder_groups: dict[str, list[Item]] = {}
     for item in items:
-        group_name = item.folder.name if item.folder else "No folder"
+        group_name = item.folder.name if item.folder else "No category"
         if group_name not in folder_groups:
             folder_groups[group_name] = []
         folder_groups[group_name].append(item)
@@ -122,6 +122,73 @@ def list_items():
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+
+
+@items_bp.route("/bulk", methods=["POST"])
+@login_required
+def bulk_update():
+    """
+    Bulk actions on items from the list view:
+    - activate
+    - deactivate
+    - delete
+    """
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    raw_ids = request.form.getlist("item_ids")
+    action = request.form.get("bulk_action", "").strip()
+
+    # Parse ids
+    try:
+        item_ids = [int(x) for x in raw_ids]
+    except ValueError:
+        item_ids = []
+
+    if not item_ids:
+        flash("No items selected for bulk action.", "warning")
+        return redirect(url_for("items.list_items"))
+
+    if action not in {"activate", "deactivate", "delete"}:
+        flash("Unknown bulk action.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    # Base query; non-admins can only touch their own items
+    query = Item.query.filter(Item.id.in_(item_ids))
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+
+    items = query.all()
+    if not items:
+        flash("You are not allowed to modify the selected items.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    updated = 0
+    deleted = 0
+
+    if action == "activate":
+        for item in items:
+            if not item.is_active:
+                item.is_active = True
+                updated += 1
+    elif action == "deactivate":
+        for item in items:
+            if item.is_active:
+                item.is_active = False
+                updated += 1
+    elif action == "delete":
+        for item in items:
+            db.session.delete(item)
+            deleted += 1
+
+    db.session.commit()
+
+    if action == "delete":
+        flash(f"Deleted {deleted} items.", "success")
+    else:
+        flash(f"Updated {updated} items.", "success")
+
+    return redirect(url_for("items.list_items"))
 
 
 @items_bp.route("/add", methods=["GET", "POST"])
@@ -146,12 +213,18 @@ def add_item():
                 notify_threshold = int(notify_threshold_raw)
             except ValueError:
                 flash("Notification threshold must be an integer.", "danger")
+                categories = (
+                    Folder.query.filter_by(user_id=current_user.id)
+                    .order_by(Folder.name.asc())
+                    .all()
+                )
                 return render_template(
                     "items/form.html",
                     item=None,
                     default_country_code=country_code,
                     default_store_ids=store_ids,
                     default_folder_name=folder_name,
+                    categories=categories,
                 )
 
         if not name or not product_id or not country_code:
@@ -174,7 +247,7 @@ def add_item():
             flash("Item created.", "success")
             return redirect(url_for("items.list_items"))
 
-    # GET: prefill with last item's country/store/folder to "remember" settings
+    # GET: prefill with last item's country/store/category to "remember" settings
     last_item = (
         Item.query.filter_by(user_id=current_user.id)
         .order_by(Item.id.desc())
@@ -186,12 +259,19 @@ def add_item():
         last_item.folder.name if last_item and last_item.folder else ""
     )
 
+    categories = (
+        Folder.query.filter_by(user_id=current_user.id)
+        .order_by(Folder.name.asc())
+        .all()
+    )
+
     return render_template(
         "items/form.html",
         item=None,
         default_country_code=default_country_code,
         default_store_ids=default_store_ids,
         default_folder_name=default_folder_name,
+        categories=categories,
     )
 
 
@@ -225,7 +305,14 @@ def edit_item(item_id):
                 notify_threshold = int(notify_threshold_raw)
             except ValueError:
                 flash("Notification threshold must be an integer.", "danger")
-                return render_template("items/form.html", item=item)
+                categories = (
+                    Folder.query.filter_by(user_id=item.user_id)
+                    .order_by(Folder.name.asc())
+                    .all()
+                )
+                return render_template(
+                    "items/form.html", item=item, categories=categories
+                )
 
         item.notify_enabled = notify_enabled
         item.notify_threshold = notify_threshold
@@ -243,7 +330,12 @@ def edit_item(item_id):
             flash("Item updated.", "success")
             return redirect(url_for("items.list_items"))
 
-    return render_template("items/form.html", item=item)
+    categories = (
+        Folder.query.filter_by(user_id=item.user_id)
+        .order_by(Folder.name.asc())
+        .all()
+    )
+    return render_template("items/form.html", item=item, categories=categories)
 
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])
@@ -282,11 +374,16 @@ def detail(item_id):
     )
 
     chart_history = (
-    AvailabilitySnapshot.query.filter_by(item_id=item.id)
-    .order_by(AvailabilitySnapshot.timestamp.asc())
-    .offset(max(0, AvailabilitySnapshot.query.filter_by(item_id=item.id).count() - 30))
-    .limit(30)
-    .all()
+        AvailabilitySnapshot.query.filter_by(item_id=item.id)
+        .order_by(AvailabilitySnapshot.timestamp.asc())
+        .offset(
+            max(
+                0,
+                AvailabilitySnapshot.query.filter_by(item_id=item.id).count() - 30,
+            )
+        )
+        .limit(30)
+        .all()
     )
 
     # Prepare data for chart.js (format timestamps as date + HH:MM)

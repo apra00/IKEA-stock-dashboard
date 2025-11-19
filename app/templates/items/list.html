@@ -10,134 +10,164 @@
   {% endif %}
 </div>
 
-{% set total_cols = 11 if current_user.is_admin else 10 %}
+{# extra column for selection checkboxes #}
+{% set total_cols = (12 if current_user.is_admin else 11) %}
 
 <div class="card shadow-sm">
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0 align-middle">
-        <thead class="table-light">
-          <tr>
-            {% macro sort_link(label, col_key) -%}
-              {%- set is_active = (sort_by == col_key) -%}
-              {%- set next_dir = 'desc' if is_active and sort_dir == 'asc' else 'asc' -%}
-              <a href="{{ url_for('items.list_items', sort=col_key, dir=next_dir) }}"
-                 class="text-decoration-none text-reset">
-                {{ label }}
-                {% if is_active %}
-                  {% if sort_dir == 'asc' %}
-                    <i class="bi bi-caret-up-fill small"></i>
-                  {% else %}
-                    <i class="bi bi-caret-down-fill small"></i>
+    <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
+      <div class="d-flex justify-content-between align-items-center px-3 pt-3 pb-2">
+        <div class="d-flex align-items-center gap-2">
+          <select class="form-select form-select-sm" name="bulk_action" style="max-width: 220px;">
+            <option value="">Bulk actions…</option>
+            <option value="activate">Set active</option>
+            <option value="deactivate">Set inactive</option>
+            <option value="delete">Delete</option>
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-light bg-primary">
+            Apply
+          </button>
+        </div>
+        <small class="text-muted d-none" id="bulk-selected-counter">0 items selected</small>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="width:1%;">
+                <input type="checkbox" id="select-all">
+              </th>
+              {% macro sort_link(label, col_key) -%}
+                {%- set is_active = (sort_by == col_key) -%}
+                {%- set next_dir = 'desc' if is_active and sort_dir == 'asc' else 'asc' -%}
+                <a href="{{ url_for('items.list_items', sort=col_key, dir=next_dir) }}"
+                   class="text-decoration-none text-reset">
+                  {{ label }}
+                  {% if is_active %}
+                    <i class="bi bi-caret-{% if sort_dir == 'asc' %}up{% else %}down{% endif %}-fill small"></i>
                   {% endif %}
-                {% endif %}
-              </a>
-            {%- endmacro %}
-
-            <th>{{ sort_link('Added at', 'added_at') }}</th>
-            <th>{{ sort_link('Name', 'name') }}</th>
-            <th>{{ sort_link('Product ID', 'product_id') }}</th>
-            <th>{{ sort_link('Country', 'country_code') }}</th>
-            <th>{{ sort_link('Folder', 'folder') }}</th>
-            <th>{{ sort_link('Stores', 'stores') }}</th>
-            <th>{{ sort_link('Active', 'active') }}</th>
-            <th>{{ sort_link('Last stock', 'last_stock') }}</th>
-            <th>Probability</th>
-            <th>{{ sort_link('Last checked', 'last_checked') }}</th>
-            {% if current_user.is_admin %}
-            <th>{{ sort_link('Owner', 'owner') }}</th>
-            {% endif %}
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-        {% if folders %}
-          {% for folder_name, folder_items in folders.items() %}
-            {% set folder_idx = loop.index %}
-            <!-- Folder header row -->
-            <tr class="table-secondary folder-header"
-                data-folder-group="folder-{{ folder_idx }}"
-                style="cursor: pointer;">
-              <td colspan="{{ total_cols }}">
-                <i class="bi bi-chevron-down me-2 folder-toggle-icon"></i>
-                <strong>{{ folder_name }}</strong>
-                <span class="text-muted ms-2">({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})</span>
-              </td>
-            </tr>
-
-            <!-- Items in this folder -->
-            {% for item in folder_items %}
-            <tr class="folder-rows"
-                data-folder-group="folder-{{ folder_idx }}">
-              <td>
-              {% if item.added_at %}
-                {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
-              {% else %}
-                -
-              {% endif %}
-            </td>
-            <td>
-                <a href="{{ url_for('items.detail', item_id=item.id) }}">
-                  {{ item.name }}
                 </a>
-              </td>
-              <td><a href="https://www.ikea.com/hu/hu/p/{{ item.product_id }}/" target="_blank">{{ item.product_id }}</a></td>
-              <td>{{ item.country_code }}</td>
-              <td>{{ item.folder.name if item.folder else '-' }}</td>
-              <td>{{ item.store_ids or "All" }}</td>
-              <td>
-                {% if item.is_active %}
-                  <span class="badge bg-success">Active</span>
-                {% else %}
-                  <span class="badge bg-secondary">Inactive</span>
-                {% endif %}
-              </td>
-              <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
-              <td>{{ item.last_probability or "-" }}</td>
-              <td>
-                {% if item.last_checked %}
-                  {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
+              {%- endmacro %}
+              <th>{{ sort_link('Added at', 'added_at') }}</th>
+              <th>{{ sort_link('Name', 'name') }}</th>
+              <th>{{ sort_link('Product ID', 'product_id') }}</th>
+              <th>{{ sort_link('Country', 'country_code') }}</th>
+              <th>{{ sort_link('Category', 'folder') }}</th>
+              <th>{{ sort_link('Stores', 'stores') }}</th>
+              <th>{{ sort_link('Active', 'active') }}</th>
+              <th>{{ sort_link('Last stock', 'last_stock') }}</th>
+              <th>{{ sort_link('Last probability', 'last_probability') }}</th>
+              <th>{{ sort_link('Last checked', 'last_checked') }}</th>
               {% if current_user.is_admin %}
-              <td>{{ item.user.username if item.user else '-' }}</td>
+              <th>{{ sort_link('Owner', 'owner') }}</th>
               {% endif %}
-              <td class="text-end">
-                {% if current_user.can_edit_items %}
-                <a class="btn btn-sm btn-outline-secondary"
-                   href="{{ url_for('items.edit_item', item_id=item.id) }}">
-                  Edit
-                </a>
-                <form method="post"
-                      action="{{ url_for('items.delete_item', item_id=item.id) }}"
-                      class="d-inline"
-                      onsubmit="return confirm('Delete this item?');">
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                </form>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% if folders %}
+            {% for folder_name, folder_items in folders.items() %}
+              {% set folder_idx = loop.index %}
+              <tr class="table-secondary folder-header"
+                  data-folder-group="folder-{{ folder_idx }}"
+                  style="cursor:pointer;">
+                <td colspan="{{ total_cols }}">
+                  <i class="bi bi-chevron-down me-1 folder-toggle-icon"></i>
+                  <strong>{{ folder_name }}</strong>
+                  <span class="ms-2 text-muted small">({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})</span>
+                </td>
+              </tr>
+
+              {# Items in this folder/category #}
+              {% for item in folder_items %}
+              <tr class="folder-rows"
+                  data-folder-group="folder-{{ folder_idx }}">
+                <td>
+                  <input type="checkbox"
+                         class="item-checkbox"
+                         name="item_ids"
+                         value="{{ item.id }}">
+                </td>
+                <td>
+                  {% if item.added_at %}
+                    {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{{ url_for('items.detail', item_id=item.id) }}">
+                    {{ item.name }}
+                  </a>
+                </td>
+                <td>
+                  <a href="https://www.ikea.com/hu/hu/p/{{ item.product_id }}/" target="_blank">
+                    {{ item.product_id }}
+                  </a>
+                </td>
+                <td>{{ item.country_code }}</td>
+                <td>{{ item.folder.name if item.folder else '-' }}</td>
+                <td>{{ item.store_ids or "All" }}</td>
+                <td>
+                  {% if item.is_active %}
+                    <span class="badge bg-success">Active</span>
+                  {% else %}
+                    <span class="badge bg-secondary">Inactive</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
+                <td>{{ item.last_probability or "-" }}</td>
+                <td>
+                  {% if item.last_checked %}
+                    {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                {% if current_user.is_admin %}
+                <td>{{ item.user.username if item.user else '-' }}</td>
                 {% endif %}
+                <td class="text-end">
+                  {% if current_user.can_edit_items %}
+                  <a class="btn btn-sm btn-outline-secondary"
+                     href="{{ url_for('items.edit_item', item_id=item.id) }}">
+                    Edit
+                  </a>
+                  <form method="post"
+                        action="{{ url_for('items.delete_item', item_id=item.id) }}"
+                        class="d-inline"
+                        onsubmit="return confirm('Delete this item?');">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="{{ total_cols }}" class="text-center text-muted py-3">
+                No items yet.
               </td>
             </tr>
-            {% endfor %}
-          {% endfor %}
-        {% else %}
-          <tr>
-            <td colspan="{{ total_cols }}" class="text-center text-muted py-3">
-              No items yet.
-            </td>
-          </tr>
-        {% endif %}
-        </tbody>
-      </table>
-    </div>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </form>
   </div>
 </div>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+  // Folder/cateogry collapsible behaviour
   document.querySelectorAll(".folder-header").forEach(function (header) {
-    header.addEventListener("click", function () {
+    header.addEventListener("click", function (evt) {
+      // avoid toggling when clicking the header checkbox (if ever added)
+      if (evt.target.tagName === "INPUT" || evt.target.closest("button")) {
+        return;
+      }
       const group = header.dataset.folderGroup;
       const rows = document.querySelectorAll(
         ".folder-rows[data-folder-group='" + group + "']"
@@ -166,6 +196,62 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   });
+
+  // Bulk selection + "select all" + counter
+  const selectAll = document.getElementById("select-all");
+  const checkboxes = document.querySelectorAll(".item-checkbox");
+  const counter = document.getElementById("bulk-selected-counter");
+  const bulkForm = document.getElementById("bulk-form");
+
+  function updateCounter() {
+    let count = 0;
+    document.querySelectorAll(".item-checkbox:checked").forEach(function () {
+      count += 1;
+    });
+    if (counter) {
+      counter.textContent = count + " item" + (count === 1 ? "" : "s") + " selected";
+      counter.classList.toggle("d-none", count === 0);
+    }
+  }
+
+  if (selectAll) {
+    selectAll.addEventListener("change", function () {
+      const checked = selectAll.checked;
+      checkboxes.forEach(function (cb) {
+        cb.checked = checked;
+      });
+      updateCounter();
+    });
+  }
+
+  checkboxes.forEach(function (cb) {
+    cb.addEventListener("change", updateCounter);
+  });
+
+  if (bulkForm) {
+    bulkForm.addEventListener("submit", function (e) {
+      const actionSelect = bulkForm.querySelector("select[name='bulk_action']");
+      const action = actionSelect ? actionSelect.value : "";
+      const selected = document.querySelectorAll(".item-checkbox:checked").length;
+
+      if (!action) {
+        e.preventDefault();
+        alert("Please choose a bulk action.");
+        return;
+      }
+      if (selected === 0) {
+        e.preventDefault();
+        alert("Please select at least one item.");
+        return;
+      }
+      if (action === "delete") {
+        if (!confirm("Delete the selected items?")) {
+          e.preventDefault();
+          return;
+        }
+      }
+    });
+  }
 });
 </script>
 
