@@ -226,6 +226,8 @@ document.addEventListener("DOMContentLoaded", function () {
   const bulkForm = document.getElementById("bulk-form");
   const counter = document.getElementById("bulk-selected-counter");
   const bulkActions = document.getElementById("bulk-actions");
+  const itemCheckboxes = Array.from(document.querySelectorAll(".item-checkbox"));
+  let lastItemCheckbox = null;
 
   function updateCounter() {
     let count = 0;
@@ -243,6 +245,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
+  // Global select-all
   if (selectAll) {
     selectAll.addEventListener("change", function () {
       const checked = selectAll.checked;
@@ -257,11 +260,27 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // Update counter when any item checkbox changes
-  document.querySelectorAll(".item-checkbox").forEach(function (cb) {
-    cb.addEventListener("change", function () {
-      updateCounter();
-    });
+  // Shift+click range selection for item checkboxes
+  function handleItemCheckboxClick(e) {
+    const cb = e.target;
+    if (e.shiftKey && lastItemCheckbox && lastItemCheckbox !== cb) {
+      const checkboxes = itemCheckboxes;
+      const start = checkboxes.indexOf(lastItemCheckbox);
+      const end = checkboxes.indexOf(cb);
+      if (start !== -1 && end !== -1) {
+        const [from, to] = start < end ? [start, end] : [end, start];
+        const checkedState = lastItemCheckbox.checked;
+        for (let i = from; i <= to; i++) {
+          checkboxes[i].checked = checkedState;
+        }
+      }
+    }
+    lastItemCheckbox = cb;
+    updateCounter();
+  }
+
+  itemCheckboxes.forEach(function (cb) {
+    cb.addEventListener("click", handleItemCheckboxClick);
   });
 
   // Category-level select all / deselect all

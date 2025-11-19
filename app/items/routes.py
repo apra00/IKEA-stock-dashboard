@@ -45,6 +45,22 @@ def _get_or_create_folder_for_user(user_id: int, name: str | None):
     return folder
 
 
+def _cleanup_empty_folders(user_id: int | None = None):
+    """
+    Delete categories (folders) which no longer have any items.
+    If user_id is given, only clean that user's folders; otherwise clean all.
+    """
+    query = Folder.query
+    if user_id is not None:
+        query = query.filter_by(user_id=user_id)
+
+    folders = query.all()
+    for f in folders:
+        # f.items is the relationship backref from Item.folder
+        if not f.items:  # no items in this folder
+            db.session.delete(f)
+
+
 @items_bp.route("/")
 @login_required
 def list_items():
@@ -188,6 +204,8 @@ def bulk_update():
         for item in items:
             db.session.delete(item)
             deleted += 1
+        # After deletions, clean up any now-empty categories (all users, for simplicity)
+        _cleanup_empty_folders()
 
     db.session.commit()
 
@@ -240,7 +258,9 @@ def bulk_edit():
 
         # Pre-select category only if all share the same one
         first_folder = items[0].folder
-        same_folder = all(i.folder and first_folder and i.folder.id == first_folder.id for i in items)
+        same_folder = all(
+            i.folder and first_folder and i.folder.id == first_folder.id for i in items
+        )
         default_folder_name = first_folder.name if same_folder and first_folder else ""
 
         return render_template(
@@ -300,6 +320,8 @@ def bulk_edit():
 
     # Apply changes to each item
     for item in items:
+        old_folder_id = item.folder_id
+
         # Category
         if folder_name:
             folder = _get_or_create_folder_for_user(item.user_id, folder_name)
@@ -311,8 +333,13 @@ def bulk_edit():
         item.is_active = is_active if has_is_active else item.is_active
 
         # Notifications
-        item.notify_enabled = notify_enabled if has_notify_enabled else item.notify_enabled
+        item.notify_enabled = (
+            notify_enabled if has_notify_enabled else item.notify_enabled
+        )
         item.notify_threshold = notify_threshold
+
+    # Clean up any categories that became empty after moving items
+    _cleanup_empty_folders()
 
     db.session.commit()
     flash(f"Bulk-edited {len(items)} items.", "success")
@@ -449,11 +476,14 @@ def edit_item(item_id):
             folder = _get_or_create_folder_for_user(item.user_id, folder_name)
             item.folder = folder
         else:
+            # Item is being removed from its category
             item.folder = None
 
         if not item.name or not item.product_id or not item.country_code:
             flash("Name, product ID and country code are required.", "danger")
         else:
+            # Clean up any categories that became empty after moving/removing this item
+            _cleanup_empty_folders(item.user_id)
             db.session.commit()
             flash("Item updated.", "success")
             return redirect(url_for("items.list_items"))
@@ -478,7 +508,10 @@ def delete_item(item_id):
         flash("You are not allowed to delete this item.", "danger")
         return redirect(url_for("items.list_items"))
 
+    user_id = item.user_id
     db.session.delete(item)
+    # Clean up categories for that user which are now empty
+    _cleanup_empty_folders(user_id)
     db.session.commit()
     flash("Item deleted.", "info")
     return redirect(url_for("items.list_items"))
