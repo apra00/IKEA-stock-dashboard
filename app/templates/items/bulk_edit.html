@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Bulk edit items – IKEA Availability{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h3 class="card-title mb-3">Bulk edit items</h3>
+        <p class="text-muted">
+          Editing <strong>{{ items|length }}</strong> item{{ '' if items|length == 1 else 's' }}.
+          Unique fields (name, product ID, country, stores) are shown as read-only.
+        </p>
+
+        <form method="post">
+          {# keep all item ids in the form #}
+          {% for it in items %}
+            <input type="hidden" name="item_ids" value="{{ it.id }}">
+          {% endfor %}
+
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" value="Multiple items selected" disabled>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Product ID</label>
+            <input class="form-control" value="Multiple items selected" disabled>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Country code</label>
+            <input class="form-control" value="Multiple items selected" disabled>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Store IDs</label>
+            <input class="form-control" value="Multiple items selected" disabled>
+          </div>
+
+          <hr class="my-3">
+
+          <!-- Category selector -->
+          <div class="mb-3">
+            <label class="form-label">Category</label>
+            <select id="category-select" class="form-select">
+              <option value="__none__">(Leave without category)</option>
+              {% for cat in categories or [] %}
+                {% set is_selected = default_folder_name and (default_folder_name == cat.name) %}
+                <option value="{{ cat.name }}" {% if is_selected %}selected{% endif %}>
+                  {{ cat.name }}
+                </option>
+              {% endfor %}
+              <option value="__new__">+ Add new category…</option>
+            </select>
+
+            <input type="hidden"
+                   name="folder_name"
+                   id="folder_name_hidden"
+                   value="{{ default_folder_name|default('') }}">
+
+            <div class="mt-2 d-none" id="new-category-wrapper">
+              <input type="text" class="form-control" id="new-category-input"
+                     placeholder="New category name">
+              <div class="form-text">
+                Type a name and it will be created just for you.
+              </div>
+            </div>
+
+            <div class="form-text">
+              This category will be applied to all selected items.
+            </div>
+          </div>
+
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="is_active" name="is_active">
+            <label class="form-check-label" for="is_active">
+              Set all selected items to <strong>active</strong> (leave unchecked to set them inactive).
+            </label>
+          </div>
+
+          <hr class="my-3">
+
+          <h6 class="mb-2">Email notifications</h6>
+          <div class="mb-3">
+            <label class="form-label">Notification threshold (total stock)</label>
+            <input name="notify_threshold"
+                   type="number"
+                   min="0"
+                   class="form-control"
+                   placeholder="Leave empty to remove thresholds">
+            <div class="form-text">
+              This threshold will be set on all selected items.
+            </div>
+          </div>
+
+          <div class="form-check mb-4">
+            <input class="form-check-input" type="checkbox" id="notify_enabled" name="notify_enabled">
+            <label class="form-check-label" for="notify_enabled">
+              Enable notifications for all selected items (unchecked = disable for all).
+            </label>
+          </div>
+
+          <button class="btn btn-primary" type="submit">Apply changes</button>
+          <a class="btn btn-secondary" href="{{ url_for('items.list_items') }}">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const categorySelect = document.getElementById("category-select");
+    const hiddenFolderName = document.getElementById("folder_name_hidden");
+    const newCategoryWrapper = document.getElementById("new-category-wrapper");
+    const newCategoryInput = document.getElementById("new-category-input");
+
+    function syncCategoryFromSelect() {
+        if (!categorySelect || !hiddenFolderName) return;
+        const val = categorySelect.value;
+
+        if (val === "__new__") {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.remove("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.focus();
+            }
+            hiddenFolderName.value = newCategoryInput ? newCategoryInput.value.trim() : "";
+        } else if (val === "__none__") {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.add("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.value = "";
+            }
+            hiddenFolderName.value = "";
+        } else {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.add("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.value = "";
+            }
+            hiddenFolderName.value = val;
+        }
+    }
+
+    if (categorySelect) {
+        categorySelect.addEventListener("change", syncCategoryFromSelect);
+        syncCategoryFromSelect();
+    }
+
+    if (newCategoryInput) {
+        newCategoryInput.addEventListener("input", function () {
+            if (hiddenFolderName) {
+                hiddenFolderName.value = newCategoryInput.value.trim();
+            }
+        });
+    }
+});
+</script>
+
+{% endblock %}

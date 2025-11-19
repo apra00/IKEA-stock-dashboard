@@ -58,6 +58,7 @@ def list_items():
         "active": Item.is_active,
         "last_stock": Item.last_stock,
         "last_checked": Item.last_checked,
+        "last_probability": Item.last_probability,
         "folder": Folder.name,
         "owner": None,  # handled separately
     }
@@ -132,6 +133,7 @@ def bulk_update():
     - activate
     - deactivate
     - delete
+    - edit (redirects to bulk edit form)
     """
     if not _require_edit_permission():
         return redirect(url_for("items.list_items"))
@@ -139,7 +141,7 @@ def bulk_update():
     raw_ids = request.form.getlist("item_ids")
     action = request.form.get("bulk_action", "").strip()
 
-    # Parse ids
+    # Parse ids safely
     try:
         item_ids = [int(x) for x in raw_ids]
     except ValueError:
@@ -149,7 +151,7 @@ def bulk_update():
         flash("No items selected for bulk action.", "warning")
         return redirect(url_for("items.list_items"))
 
-    if action not in {"activate", "deactivate", "delete"}:
+    if action not in {"activate", "deactivate", "delete", "edit"}:
         flash("Unknown bulk action.", "danger")
         return redirect(url_for("items.list_items"))
 
@@ -163,6 +165,12 @@ def bulk_update():
         flash("You are not allowed to modify the selected items.", "danger")
         return redirect(url_for("items.list_items"))
 
+    # Bulk EDIT: redirect to dedicated form
+    if action == "edit":
+        ids_str = ",".join(str(i.id) for i in items)
+        return redirect(url_for("items.bulk_edit", ids=ids_str))
+
+    # Other bulk actions operate in-place
     updated = 0
     deleted = 0
 
@@ -188,6 +196,126 @@ def bulk_update():
     else:
         flash(f"Updated {updated} items.", "success")
 
+    return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/bulk-edit", methods=["GET", "POST"])
+@login_required
+def bulk_edit():
+    """
+    Bulk edit form:
+    - same feel as edit form
+    - unique fields disabled
+    - editable: category, active, notifications
+    """
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    if request.method == "GET":
+        ids_param = request.args.get("ids", "")
+        raw_ids = [x for x in ids_param.split(",") if x.strip()]
+        try:
+            item_ids = [int(x) for x in raw_ids]
+        except ValueError:
+            item_ids = []
+
+        if not item_ids:
+            flash("No items selected.", "warning")
+            return redirect(url_for("items.list_items"))
+
+        query = Item.query.filter(Item.id.in_(item_ids))
+        if not current_user.is_admin:
+            query = query.filter_by(user_id=current_user.id)
+
+        items = query.all()
+        if not items:
+            flash("You are not allowed to edit the selected items.", "danger")
+            return redirect(url_for("items.list_items"))
+
+        # Categories for this user (or for admin: use owner of first item)
+        owner_id = items[0].user_id
+        categories = (
+            Folder.query.filter_by(user_id=owner_id).order_by(Folder.name.asc()).all()
+        )
+
+        # Pre-select category only if all share the same one
+        first_folder = items[0].folder
+        same_folder = all(i.folder and first_folder and i.folder.id == first_folder.id for i in items)
+        default_folder_name = first_folder.name if same_folder and first_folder else ""
+
+        return render_template(
+            "items/bulk_edit.html",
+            items=items,
+            categories=categories,
+            default_folder_name=default_folder_name,
+        )
+
+    # POST (update all selected items)
+    raw_ids = request.form.getlist("item_ids")
+    try:
+        item_ids = [int(x) for x in raw_ids]
+    except ValueError:
+        item_ids = []
+
+    if not item_ids:
+        flash("No items selected.", "warning")
+        return redirect(url_for("items.list_items"))
+
+    query = Item.query.filter(Item.id.in_(item_ids))
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+
+    items = query.all()
+    if not items:
+        flash("You are not allowed to edit the selected items.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    folder_name = request.form.get("folder_name", "").strip()
+    is_active = request.form.get("is_active") == "on"
+    has_is_active = "is_active" in request.form  # always there; simple behaviour
+
+    notify_enabled = request.form.get("notify_enabled") == "on"
+    has_notify_enabled = "notify_enabled" in request.form
+
+    notify_threshold_raw = request.form.get("notify_threshold", "").strip()
+    notify_threshold = None
+    if notify_threshold_raw:
+        try:
+            notify_threshold = int(notify_threshold_raw)
+        except ValueError:
+            flash("Notification threshold must be an integer.", "danger")
+            # Reload with same items
+            owner_id = items[0].user_id
+            categories = (
+                Folder.query.filter_by(user_id=owner_id)
+                .order_by(Folder.name.asc())
+                .all()
+            )
+            return render_template(
+                "items/bulk_edit.html",
+                items=items,
+                categories=categories,
+                default_folder_name=folder_name,
+            )
+
+    # Apply changes to each item
+    for item in items:
+        # Category
+        if folder_name:
+            folder = _get_or_create_folder_for_user(item.user_id, folder_name)
+            item.folder = folder
+        else:
+            item.folder = None
+
+        # Active flag (simple: apply same to all)
+        item.is_active = is_active if has_is_active else item.is_active
+
+        # Notifications
+        item.notify_enabled = notify_enabled if has_notify_enabled else item.notify_enabled
+        item.notify_threshold = notify_threshold
+
+    db.session.commit()
+    flash(f"Bulk-edited {len(items)} items.", "success")
     return redirect(url_for("items.list_items"))
 
 
@@ -365,7 +493,7 @@ def detail(item_id):
         flash("You are not allowed to view this item.", "danger")
         return redirect(url_for("items.list_items"))
 
-    # last 30 snapshots for chart
+    # last 30 snapshots (table)
     history = (
         AvailabilitySnapshot.query.filter_by(item_id=item.id)
         .order_by(AvailabilitySnapshot.timestamp.desc())
@@ -373,15 +501,13 @@ def detail(item_id):
         .all()
     )
 
+    # last 30 snapshots for chart in ascending order
+    total_count = AvailabilitySnapshot.query.filter_by(item_id=item.id).count()
+    offset = max(0, total_count - 30)
     chart_history = (
         AvailabilitySnapshot.query.filter_by(item_id=item.id)
         .order_by(AvailabilitySnapshot.timestamp.asc())
-        .offset(
-            max(
-                0,
-                AvailabilitySnapshot.query.filter_by(item_id=item.id).count() - 30,
-            )
-        )
+        .offset(offset)
         .limit(30)
         .all()
     )

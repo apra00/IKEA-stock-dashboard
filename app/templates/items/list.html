@@ -18,11 +18,12 @@
     <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
       <div class="d-flex justify-content-between align-items-center px-3 pt-3 pb-2">
         <div class="d-flex align-items-center gap-2">
-          <select class="form-select form-select-sm" name="bulk_action" style="max-width: 220px;">
+          <select class="form-select form-select-sm" name="bulk_action" style="max-width: 240px;">
             <option value="">Bulk actions…</option>
             <option value="activate">Set active</option>
             <option value="deactivate">Set inactive</option>
             <option value="delete">Delete</option>
+            <option value="edit">Edit selected…</option>
           </select>
           <button type="submit" class="btn btn-sm btn-outline-light bg-primary">
             Apply
@@ -73,9 +74,20 @@
                   data-folder-group="folder-{{ folder_idx }}"
                   style="cursor:pointer;">
                 <td colspan="{{ total_cols }}">
-                  <i class="bi bi-chevron-down me-1 folder-toggle-icon"></i>
-                  <strong>{{ folder_name }}</strong>
-                  <span class="ms-2 text-muted small">({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})</span>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <i class="bi bi-chevron-down me-1 folder-toggle-icon"></i>
+                      <strong>{{ folder_name }}</strong>
+                      <span class="ms-2 text-muted small">
+                        ({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})
+                      </span>
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary folder-select-all"
+                            data-folder-group="folder-{{ folder_idx }}">
+                      Select all in this category
+                    </button>
+                  </div>
                 </td>
               </tr>
 
@@ -161,11 +173,11 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  // Folder/cateogry collapsible behaviour
+  // Folder/category collapsible behaviour
   document.querySelectorAll(".folder-header").forEach(function (header) {
     header.addEventListener("click", function (evt) {
-      // avoid toggling when clicking the header checkbox (if ever added)
-      if (evt.target.tagName === "INPUT" || evt.target.closest("button")) {
+      // avoid toggling when clicking a button (select-all)
+      if (evt.target.tagName === "BUTTON" || evt.target.closest("button")) {
         return;
       }
       const group = header.dataset.folderGroup;
@@ -180,7 +192,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       });
 
-      // If any are visible, hide all; otherwise show all
       rows.forEach(function (row) {
         if (anyVisible) {
           row.classList.add("d-none");
@@ -197,7 +208,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
-  // Bulk selection + "select all" + counter
   const selectAll = document.getElementById("select-all");
   const checkboxes = document.querySelectorAll(".item-checkbox");
   const counter = document.getElementById("bulk-selected-counter");
@@ -226,6 +236,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
   checkboxes.forEach(function (cb) {
     cb.addEventListener("change", updateCounter);
+  });
+
+  // Category-level select all
+  document.querySelectorAll(".folder-select-all").forEach(function (btn) {
+    btn.addEventListener("click", function (evt) {
+      evt.stopPropagation();
+      const group = btn.dataset.folderGroup;
+      const rows = document.querySelectorAll(
+        ".folder-rows[data-folder-group='" + group + "']"
+      );
+      rows.forEach(function (row) {
+        const cb = row.querySelector(".item-checkbox");
+        if (cb) {
+          cb.checked = true;
+        }
+      });
+      updateCounter();
+    });
   });
 
   if (bulkForm) {
