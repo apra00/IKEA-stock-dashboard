@@ -16,17 +16,31 @@
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
-      <div class="d-flex justify-content-between align-items-center px-3 pt-3 pb-2">
-        <div class="d-flex align-items-center gap-2">
-          <select class="form-select form-select-sm" name="bulk_action" style="max-width: 240px;">
-            <option value="">Bulk actions…</option>
-            <option value="activate">Set active</option>
-            <option value="deactivate">Set inactive</option>
-            <option value="delete">Delete</option>
-            <option value="edit">Edit selected…</option>
-          </select>
-          <button type="submit" class="btn btn-sm btn-outline-light bg-primary">
-            Apply
+      <div class="d-flex flex-wrap justify-content-between align-items-center px-3 pt-3 pb-2 gap-2">
+        <div id="bulk-actions" class="d-none">
+          <button type="submit"
+                  class="btn btn-sm btn-outline-light bg-primary me-2 mb-1"
+                  name="bulk_action"
+                  value="activate">
+            Activate
+          </button>
+          <button type="submit"
+                  class="btn btn-sm btn-outline-light bg-primary me-2 mb-1"
+                  name="bulk_action"
+                  value="deactivate">
+            Deactivate
+          </button>
+          <button type="submit"
+                  class="btn btn-sm btn-outline-danger me-2 mb-1"
+                  name="bulk_action"
+                  value="delete">
+            Delete
+          </button>
+          <button type="submit"
+                  class="btn btn-sm btn-outline-light bg-primary mb-1"
+                  name="bulk_action"
+                  value="edit">
+            Bulk edit…
           </button>
         </div>
         <small class="text-muted d-none" id="bulk-selected-counter">0 items selected</small>
@@ -73,7 +87,12 @@
               <tr class="table-secondary folder-header"
                   data-folder-group="folder-{{ folder_idx }}"
                   style="cursor:pointer;">
-                <td colspan="{{ total_cols }}">
+                <td style="width:1%;">
+                  <input type="checkbox"
+                         class="folder-select"
+                         data-folder-group="folder-{{ folder_idx }}">
+                </td>
+                <td colspan="{{ total_cols - 1 }}">
                   <div class="d-flex justify-content-between align-items-center">
                     <div>
                       <i class="bi bi-chevron-down me-1 folder-toggle-icon"></i>
@@ -82,11 +101,6 @@
                         ({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})
                       </span>
                     </div>
-                    <button type="button"
-                            class="btn btn-sm btn-outline-secondary folder-select-all"
-                            data-folder-group="folder-{{ folder_idx }}">
-                      Select all in this category
-                    </button>
                   </div>
                 </td>
               </tr>
@@ -176,8 +190,8 @@ document.addEventListener("DOMContentLoaded", function () {
   // Folder/category collapsible behaviour
   document.querySelectorAll(".folder-header").forEach(function (header) {
     header.addEventListener("click", function (evt) {
-      // avoid toggling when clicking a button (select-all)
-      if (evt.target.tagName === "BUTTON" || evt.target.closest("button")) {
+      // Avoid toggling when clicking the folder checkbox
+      if (evt.target.tagName === "INPUT" || evt.target.closest("input")) {
         return;
       }
       const group = header.dataset.folderGroup;
@@ -209,69 +223,79 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   const selectAll = document.getElementById("select-all");
-  const checkboxes = document.querySelectorAll(".item-checkbox");
-  const counter = document.getElementById("bulk-selected-counter");
   const bulkForm = document.getElementById("bulk-form");
+  const counter = document.getElementById("bulk-selected-counter");
+  const bulkActions = document.getElementById("bulk-actions");
 
   function updateCounter() {
     let count = 0;
     document.querySelectorAll(".item-checkbox:checked").forEach(function () {
       count += 1;
     });
+
     if (counter) {
       counter.textContent = count + " item" + (count === 1 ? "" : "s") + " selected";
       counter.classList.toggle("d-none", count === 0);
+    }
+
+    if (bulkActions) {
+      bulkActions.classList.toggle("d-none", count === 0);
     }
   }
 
   if (selectAll) {
     selectAll.addEventListener("change", function () {
       const checked = selectAll.checked;
-      checkboxes.forEach(function (cb) {
+      document.querySelectorAll(".item-checkbox").forEach(function (cb) {
         cb.checked = checked;
+      });
+      // Also sync folder-level checkboxes
+      document.querySelectorAll(".folder-select").forEach(function (fcb) {
+        fcb.checked = checked;
       });
       updateCounter();
     });
   }
 
-  checkboxes.forEach(function (cb) {
-    cb.addEventListener("change", updateCounter);
+  // Update counter when any item checkbox changes
+  document.querySelectorAll(".item-checkbox").forEach(function (cb) {
+    cb.addEventListener("change", function () {
+      updateCounter();
+    });
   });
 
-  // Category-level select all
-  document.querySelectorAll(".folder-select-all").forEach(function (btn) {
-    btn.addEventListener("click", function (evt) {
-      evt.stopPropagation();
-      const group = btn.dataset.folderGroup;
+  // Category-level select all / deselect all
+  document.querySelectorAll(".folder-select").forEach(function (fcb) {
+    fcb.addEventListener("change", function (evt) {
+      const checked = fcb.checked;
+      const group = fcb.dataset.folderGroup;
       const rows = document.querySelectorAll(
         ".folder-rows[data-folder-group='" + group + "']"
       );
       rows.forEach(function (row) {
         const cb = row.querySelector(".item-checkbox");
         if (cb) {
-          cb.checked = true;
+          cb.checked = checked;
         }
       });
       updateCounter();
+      evt.stopPropagation();
     });
   });
 
+  // Bulk form submit: require at least one item, confirm on delete
   if (bulkForm) {
     bulkForm.addEventListener("submit", function (e) {
-      const actionSelect = bulkForm.querySelector("select[name='bulk_action']");
-      const action = actionSelect ? actionSelect.value : "";
       const selected = document.querySelectorAll(".item-checkbox:checked").length;
-
-      if (!action) {
-        e.preventDefault();
-        alert("Please choose a bulk action.");
-        return;
-      }
       if (selected === 0) {
         e.preventDefault();
         alert("Please select at least one item.");
         return;
       }
+
+      const submitter = e.submitter || null;
+      const action = submitter ? submitter.value : "";
+
       if (action === "delete") {
         if (!confirm("Delete the selected items?")) {
           e.preventDefault();
@@ -280,6 +304,9 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   }
+
+  // Initial state
+  updateCounter();
 });
 </script>
 
