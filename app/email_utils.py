@@ -28,10 +28,12 @@ def send_email(subject: str, body: str, recipients):
     msg["From"] = from_addr
     msg["To"] = ", ".join(recipients)
     msg.set_content(body)
-
-    with smtplib.SMTP(host, port) as server:
-        if cfg.get("SMTP_USE_TLS", True):
-            server.starttls()
-        if username and password:
-            server.login(username, password)
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP(host, port) as server:
+            if cfg.get("SMTP_USE_TLS", True):
+                server.starttls()
+            if username and password:
+                server.login(username, password)
+            server.send_message(msg)
+    except Exception as exc:
+        current_app.logger.error("Failed to send email: %r", exc)

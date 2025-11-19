@@ -16,6 +16,7 @@
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
+      {{ csrf_token() }}
       <div class="d-flex flex-wrap justify-content-between align-items-center px-3 pt-3 pb-2 gap-2">
         <div id="bulk-actions" class="d-none">
           <button type="submit"
@@ -164,6 +165,7 @@
                         action="{{ url_for('items.delete_item', item_id=item.id) }}"
                         class="d-inline"
                         onsubmit="return confirm('Delete this item?');">
+                        {{ csrf_token() }}
                     <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
                   </form>
                   {% endif %}

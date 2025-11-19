@@ -98,8 +98,17 @@ def create_default_admin():
     Create an initial admin user if no users exist.
     """
     if User.query.count() == 0:
-        admin = User(username="admin", role="admin")
-        admin.set_password("admin")
+        username = os.environ.get("INITIAL_ADMIN_USERNAME", "admin")
+        pwd = os.environ.get("INITIAL_ADMIN_PASSWORD")
+        if not pwd:
+            # 20 random characters if not explicitly set
+            pwd = secrets.token_urlsafe(20)
+
+        admin = User(username=username, role="admin")
+        admin.set_password(pwd)
         db.session.add(admin)
         db.session.commit()
-        print("Created default admin user: admin / admin")
+        print(
+            f"Created default admin user: {username} / {pwd} "
+            "(please change this immediately)."
+        )

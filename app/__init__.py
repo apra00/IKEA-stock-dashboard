@@ -1,5 +1,5 @@
 from flask import Flask
-from .extensions import db, login_manager
+from .extensions import db, login_manager, csrf, limiter
 from .models import User
 from .models import create_default_admin
 from .dashboard.routes import dashboard_bp
@@ -9,18 +9,19 @@ from .users.routes import users_bp
 from .api.routes import api_bp
 from config import config
 from flask_migrate import Migrate
-from .extensions import db
 
 migrate = Migrate()
 
 
 def create_app(config_name: str = "default") -> Flask:
     app = Flask(__name__)
-    app.config.from_object(config[config_name])
-
-    # Init extensions
+    cfg_cls = config[config_name]
+    app.config.from_object(cfg_cls)
+    cfg_cls.validate()
+    limiter.init_app(app)
     db.init_app(app)
     migrate.init_app(app, db)
+    csrf.init_app(app)
     login_manager.init_app(app)
 
     @login_manager.user_loader

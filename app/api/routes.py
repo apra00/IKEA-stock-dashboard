@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify, current_app, abort
+import hmac
 from ..models import Item
 from ..ikea_service import check_item, check_all_active_items
+from ..extensions import csrf, limiter
+
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -14,10 +17,11 @@ def _require_api_key():
         abort(403)
 
     provided = request.headers.get("X-API-Key") or request.args.get("api_key")
-    if not provided or provided != expected:
+    if not provided or not hmac.compare_digest(provided, expected):
         abort(403)
 
-
+@limiter.limit("5 per minute; 20 per hour")
+@csrf.exempt
 @api_bp.route("/check", methods=["POST"])
 def webhook_check():
     """

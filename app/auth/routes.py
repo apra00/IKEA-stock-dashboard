@@ -1,10 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_user, logout_user, current_user
 from ..models import User
+from ..extensions import limiter
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
-
+@limiter.limit("5 per minute; 20 per hour")
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:

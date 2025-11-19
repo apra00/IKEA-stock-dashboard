@@ -103,7 +103,13 @@ SMTP_USE_TLS=True
 
 ### Admin API key (for webhooks)
 ```
-ADMIN_API_KEY=yourapikey
+WEBHOOK_API_KEY=yourapikey
+```
+
+### DEBUG toggle
+Set it `true` to enable Flask debugging
+```
+FLASK_DEBUG=false
 ```
 
 ---
