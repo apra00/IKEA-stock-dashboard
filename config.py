@@ -27,7 +27,8 @@ class Config:
     SMTP_FROM = os.environ.get("SMTP_FROM", "")
 
     # Webhook API key (admin can see / manage this value outside the app)
-    WEBHOOK_API_KEY = os.environ.get("WEBHOOK_API_KEY", "change-this-secret_to_something")
+    # IMPORTANT: no default here – must be explicitly configured for production.
+    WEBHOOK_API_KEY = os.environ.get("WEBHOOK_API_KEY")
 
     SESSION_COOKIE_SECURE = True       # only over HTTPS
     SESSION_COOKIE_HTTPONLY = True     # not accessible from JS
@@ -38,8 +39,10 @@ class Config:
     def validate(cls):
         if not cls.SECRET_KEY:
             raise RuntimeError("SECRET_KEY must be set.")
-        # Treat missing ADMIN_API_KEY as configuration error if webhooks are enabled
-        # (or at least log a big warning)
+        if not cls.WEBHOOK_API_KEY:
+            raise RuntimeError(
+                "WEBHOOK_API_KEY must be set to protect /api/check webhook."
+            )
 
 
 class DevConfig(Config):

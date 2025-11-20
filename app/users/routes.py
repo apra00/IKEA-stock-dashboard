@@ -84,7 +84,7 @@ def edit_user(user_id):
     return render_template("users/form.html", user=user)
 
 
-@users_bp.route("/<int:user_id>/delete", methods=["GET", "POST"])
+@users_bp.route("/<int:user_id>/delete", methods=["POST"])
 @login_required
 def delete_user(user_id):
     if not _require_admin():

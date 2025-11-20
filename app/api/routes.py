@@ -1,3 +1,4 @@
+# app/api/routes.py
 from flask import Blueprint, request, jsonify, current_app, abort
 import hmac
 from ..models import Item
@@ -10,14 +11,15 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 def _require_api_key():
     """
-    Require a valid API key in X-API-Key header or ?api_key= query param.
+    Require a valid API key in X-API-Key header.
     Uses constant-time comparison to avoid timing attacks.
     """
     expected = current_app.config.get("WEBHOOK_API_KEY")
     if not expected:
+        # Misconfigured instance – do not allow webhook access
         abort(403)
 
-    provided = request.headers.get("X-API-Key") or request.args.get("api_key")
+    provided = request.headers.get("X-API-Key")
     if not provided or not hmac.compare_digest(provided, expected):
         abort(403)
 
