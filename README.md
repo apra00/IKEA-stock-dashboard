@@ -1,173 +1,191 @@
-# 🛒 IKEA Availability Monitor
+# 🚀 IKEA Stock Dashboard
 
-A full-featured web application that checks stock availability for IKEA products using the open-source **ikea-availability-checker** Node tool.  
-It provides real-time store-by-store availability, historical tracking, notifications, webhooks, and user/role management for your friends.
+A modern, self-hosted dashboard for monitoring IKEA product availability in real time.  
+Track items, receive alerts, view historical data, and integrate automated checks — all in a secure, multi-user environment.
 
 ---
 
 ## ✨ Features
 
-### ✔ Product Monitoring
-- Add unlimited IKEA items
-- Organize them into simple folders/categories
-- Live per-store stock availability
-- Historical tracking with chart
-- Automatic stock checks (manual or webhook)
-- Store lookup by country
-
-### ✔ Notifications
-- Email notifications when stock reaches a threshold
-- Per-item notification toggle and threshold value
-- SMTP settings in configuration
-
-### ✔ Webhooks & API Keys
-- Admin-only API key
-- Secure webhook endpoint to trigger a stock check
-
-### ✔ User Management
-- Login system (Flask-Login)
-- Roles: admin, editor
-- Users can set their own email for notifications
+- 🔍 **Track IKEA products** by product ID  
+- 🏬 **Store-specific or country-wide checks**  
+- 📬 **Stock threshold email alerts**  
+- 📊 **Historical availability charts**  
+- 🧑‍💼 **Admin panel** (user + item management)  
+- 🔐 **Secure webhook** for automated background checks  
+- 🧩 **Node.js integration** for live IKEA API data
 
 ---
-## 🧩 Technology Stack
+
+## 📦 Requirements
 
 **Backend**
-- Python 3  
-- Flask  
-- SQLAlchemy  
-- Flask-Login  
-- Flask-Migrate  
-- smtplib (email)
+- Python **3.10+**
+- Flask ecosystem (Login, SQLAlchemy, Limiter)
 
-**Frontend**
-- Bootstrap 5  
-- Chart.js  
-- Jinja2 Templates
+**Node**
+- Node.js **18+**  
+- `ikea-availability-checker` dependencies
 
-**IKEA Data Provider**
-- Node.js  
-- `ikea-availability-checker` NPM package
+**System**
+- SMTP server for email notifications  
+- SQLite (default) or any SQLAlchemy-compatible DB
 
 ---
 
-## 📦 Installation
+## ⚙️ Installation
 
-### 1. Clone the repo
+### 1️⃣ Clone the project
 ```bash
 git clone https://github.com/apra00/IKEA-stock-dashboard.git
-cd IKEA-stock-dashboard
+cd repo
 ```
 
-### 2. Create virtual environment
+### 2️⃣ Python environment
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-```
-
-### 3. Install Python dependencies
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Install Node dependency
+### 3️⃣ Node dependencies
 ```bash
-npm install ikea-availability-checker
+npm install
 ```
 
-### 5. Initialize the database
+### 4️⃣ Add environment variables
+
+Create **.env** in the project root:
+
+```
+SECRET_KEY=your-secret-key
+WEBHOOK_API_KEY=your-webhook-key
+DATABASE_URL=sqlite:///ikea_availability.db
+
+SMTP_SERVER=smtp.example.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USERNAME=your-email-user
+SMTP_PASSWORD=your-email-password
+SMTP_FROM=alerts@example.com
+```
+
+⚠️ `SECRET_KEY` and `WEBHOOK_API_KEY` **must** be set — they have no defaults.
+
+---
+
+## 🗄️ Database Setup
+
 ```bash
 flask db upgrade
 ```
 
----
-
-## ⚙️ Configuration
-
-Create `.env` or configure environment variables or use the `config.py`:
-
-### Flask
-```
-SECRET_KEY=your-secret
-```
-
-### SMTP (optional)
-```
-SMTP_SERVER=smtp.example.com
-SMTP_PORT=587
-SMTP_USERNAME=me@example.com
-SMTP_PASSWORD=yourpassword
-SMTP_FROM=me@example.com
-SMTP_USE_TLS=True
-```
-
-### Admin API key (for webhooks)
-```
-WEBHOOK_API_KEY=yourapikey
-```
-
-### DEBUG toggle
-Set it `true` to enable Flask debugging
-```
-FLASK_DEBUG=false
-```
+On first launch, an admin user is auto-created with a generated password printed in the console.
 
 ---
 
-## 🚀 Running the App
+## ▶️ Running the App
 
 ### Development
 ```bash
+export FLASK_APP=app
+export FLASK_ENV=development
 flask run
 ```
 
----
-
-## 🔁 Triggering a Webhook
-
-Send:
-
+### Production Example (Gunicorn)
 ```bash
-curl -X POST https://yourdomain.com/webhook/check \
-  -H "X-API-Key: YOUR_ADMIN_API_KEY"
+gunicorn -w 4 'app:create_app()'
 ```
-
-If the key matches the admin API key, the app runs a stock check for all active items.
 
 ---
 
-## ⏱ Cron Job
+## 🧭 Usage Guide
 
-To auto-refresh stock:
+### ➕ Add an Item
+1. Log in  
+2. (Optional) Create a folder  
+3. Add a product by **product ID**  
+4. Choose country + store filters  
+5. Set notification threshold (optional)
 
-```
-*/30 * * * * curl -X POST -H "X-API-Key: YOUR_ADMIN_API_KEY" https://yourdomain.com/webhook/check
-```
+### 📈 View Item Data
+- Live stock  
+- Probability summary  
+- Per-store availability  
+- Historical trend chart  
 
-Runs every 30 minutes.
+### 🧑‍💼 Admin Tools
+- Manage users  
+- Manage all items  
+- Trigger system-wide checks  
 
 ---
 
-## 🤝 Contributing
+## 🌐 Webhook API (Automation)
 
-Pull requests are welcome!  
-If you'd like to add features (e.g., Telegram alerts, Docker support), feel free to open an issue.
+### Endpoint
+```
+POST /api/check
+Header: X-API-Key: <WEBHOOK_API_KEY>
+```
+
+### Payload Options
+
+**Check all items**
+```json
+{}
+```
+
+**Check by internal item ID**
+```json
+{"item_id": 12}
+```
+
+**Check by IKEA product ID**
+```json
+{"product_id": "80213074"}
+```
+
+Returns JSON with results.
+
+---
+
+## 📁 Project Structure (simplified)
+
+```
+app/
+  auth/           Authentication
+  dashboard/      UI & charts
+  items/          Item CRUD & views
+  api/            Webhook endpoints
+  users/          Admin management
+  ikea_service.py Node integration + notifications
+  models.py
+  extensions.py
+
+node/
+  ikea_client.js
+  ikea_stores.js
+```
+
+---
+
+## 🔒 Security
+
+- API key must be sent via **X-API-Key** header  
+- Login is **rate limited**  
+- Redirects sanitized to avoid open-redirect attacks  
+- Node subprocesses **timeout automatically**  
+- Email alerts only notify item owners (and admins if configured)
 
 ---
 
 ## 📜 License
-
-MIT — free for personal and commercial use.
-
----
-
-## ❤️ Credits
-
-- Uses the excellent [`ikea-availability-checker`](https://github.com/Ephigenia/ikea-availability-checker)
-- Built with Flask, Bootstrap, and Chart.js
+MIT (or your chosen license)
 
 ---
 
-## 📬 Support
+## ❤️ Contributing
+PRs welcome — feel free to extend notifications, add new alerts, integrate with Home Assistant, or improve the UI.
 
-If you need help or want additional features, feel free to open an issue.
