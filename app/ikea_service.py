@@ -1,3 +1,4 @@
+# app/ikea_service.py
 import json
 import subprocess
 from datetime import datetime
@@ -7,6 +8,9 @@ from flask import current_app
 from .extensions import db
 from .models import Item, AvailabilitySnapshot, User
 from .email_utils import send_email
+
+
+NODE_SUBPROCESS_TIMEOUT = 30  # seconds – avoid hanging Node subprocesses
 
 
 def _run_node_checker(country: str, product_id: str, store_ids: Optional[List[str]]):
@@ -22,12 +26,16 @@ def _run_node_checker(country: str, product_id: str, store_ids: Optional[List[st
         store_arg,
     ]
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=current_app.root_path + "/..",  # project root
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=current_app.root_path + "/..",  # project root
+            timeout=NODE_SUBPROCESS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "Node process timed out."
 
     if proc.returncode != 0:
         return None, proc.stderr.strip() or "Node process failed."
@@ -51,12 +59,16 @@ def _run_node_stores(country: str):
         country,
     ]
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=current_app.root_path + "/..",  # project root
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=current_app.root_path + "/..",  # project root
+            timeout=NODE_SUBPROCESS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "Node process timed out."
 
     if proc.returncode != 0:
         return None, proc.stderr.strip() or "Node process failed."
@@ -94,18 +106,35 @@ def parse_availability_summary(data: list) -> Tuple[int, str]:
     return total_stock, prob_str
 
 
-def _send_threshold_notification(item: Item, total_stock: int, prob_str: str, timestamp: datetime):
+def _send_threshold_notification(
+    item: Item, total_stock: int, prob_str: str, timestamp: datetime
+):
     """
-    Send email notification to all users who have an email set,
-    when an item's stock crosses the configured threshold.
+    Send email notification when an item's stock crosses the configured threshold.
+
+    Security/privacy: only notify the item's owner (and optionally admins),
+    not every user in the system.
     """
-    recipients = [u.email for u in User.query.filter(User.email.isnot(None)).all()]
+    recipients = set()
+
+    # Primary recipient: the item's owner
+    if item.user and item.user.email:
+        recipients.add(item.user.email)
+
+    # Optionally, also notify admins that have an email configured
+    admin_users = User.query.filter(
+        User.role == "admin", User.email.isnot(None)
+    ).all()
+    for admin in admin_users:
+        recipients.add(admin.email)
+
     if not recipients:
         return
 
     subject = f"IKEA stock alert: {item.name} ({item.product_id})"
     body = (
-        f"Stock for item '{item.name}' (product {item.product_id}) has reached {total_stock}.\n\n"
+        f"Stock for item '{item.name}' (product {item.product_id}) "
+        f"has reached {total_stock}.\n\n"
         f"Owner: {item.user.username if item.user else 'Unknown'}\n"
         f"Folder: {item.folder.name if item.folder else 'None'}\n"
         f"Country: {item.country_code}\n"
@@ -115,7 +144,7 @@ def _send_threshold_notification(item: Item, total_stock: int, prob_str: str, ti
         f"Threshold: {item.notify_threshold}\n"
     )
 
-    send_email(subject, body, recipients)
+    send_email(subject, body, list(recipients))
 
 
 def check_item(item: Item):
