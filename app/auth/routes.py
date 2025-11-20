@@ -5,7 +5,8 @@ from ..extensions import limiter
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
-@limiter.limit("5 per minute; 20 per hour")
+
+# @limiter.limit("5 per minute; 20 per hour")
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:

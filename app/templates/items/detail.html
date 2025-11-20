@@ -24,7 +24,7 @@
   <div class="text-end">
     {% if current_user.can_edit_items %}
     <form method="post" action="{{ url_for('items.check_single', item_id=item.id) }}" class="d-inline">
-      {{ csrf_token() }}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-outline-primary btn-sm" type="submit">
         <i class="bi bi-arrow-clockwise me-1"></i>Update availability
       </button>

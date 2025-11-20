@@ -13,7 +13,7 @@
         </p>
 
         <form method="post">
-          {{ csrf_token() }}
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {# keep all item ids in the form #}
           {% for it in items %}
             <input type="hidden" name="item_ids" value="{{ it.id }}">

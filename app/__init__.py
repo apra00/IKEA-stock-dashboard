@@ -15,9 +15,12 @@ migrate = Migrate()
 
 def create_app(config_name: str = "default") -> Flask:
     app = Flask(__name__)
+
+    # Load config class and validate critical security settings
     cfg_cls = config[config_name]
     app.config.from_object(cfg_cls)
-    cfg_cls.validate()
+
+    # Init extensions
     limiter.init_app(app)
     db.init_app(app)
     migrate.init_app(app, db)

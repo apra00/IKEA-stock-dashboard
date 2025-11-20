@@ -11,6 +11,7 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 def _require_api_key():
     """
     Require a valid API key in X-API-Key header or ?api_key= query param.
+    Uses constant-time comparison to avoid timing attacks.
     """
     expected = current_app.config.get("WEBHOOK_API_KEY")
     if not expected:
@@ -19,6 +20,7 @@ def _require_api_key():
     provided = request.headers.get("X-API-Key") or request.args.get("api_key")
     if not provided or not hmac.compare_digest(provided, expected):
         abort(403)
+
 
 @limiter.limit("5 per minute; 20 per hour")
 @csrf.exempt
