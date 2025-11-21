@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (
     Blueprint,
@@ -14,6 +14,7 @@ from ..extensions import db
 from ..models import Item, AvailabilitySnapshot, Folder
 from ..ikea_service import (
     check_item,
+    check_all_active_items,
     get_stores_for_country,
     get_live_availability_for_item,
 )
@@ -23,42 +24,36 @@ items_bp = Blueprint("items", __name__, url_prefix="/items")
 
 def _require_edit_permission():
     if not current_user.can_edit_items:
-        flash("You are not authorized to modify items.", "danger")
+        flash("You do not have permission to edit items.", "danger")
         return False
     return True
 
 
-def _get_or_create_folder_for_user(user_id: int, name: str | None):
-    if not name:
-        return None
-    clean_name = name.strip()
-    if not clean_name:
-        return None
-
-    folder = Folder.query.filter_by(user_id=user_id, name=clean_name).first()
+def _get_or_create_folder_for_user(user_id, folder_name: str):
+    folder = Folder.query.filter_by(user_id=user_id, name=folder_name).first()
     if folder:
         return folder
-
-    folder = Folder(user_id=user_id, name=clean_name)
+    folder = Folder(user_id=user_id, name=folder_name)
     db.session.add(folder)
-    db.session.flush()  # ensure id is available before commit
+    db.session.commit()
     return folder
 
 
-def _cleanup_empty_folders(user_id: int | None = None):
+def _cleanup_empty_folders(user_id):
     """
-    Delete categories (folders) which no longer have any items.
-    If user_id is given, only clean that user's folders; otherwise clean all.
+    Delete folders for the user that have no remaining items.
     """
-    query = Folder.query
-    if user_id is not None:
-        query = query.filter_by(user_id=user_id)
-
-    folders = query.all()
-    for f in folders:
-        # f.items is the relationship backref from Item.folder
-        if not f.items:  # no items in this folder
-            db.session.delete(f)
+    empty = (
+        Folder.query.filter_by(user_id=user_id)
+        .outerjoin(Item)
+        .group_by(Folder.id)
+        .having(db.func.count(Item.id) == 0)
+        .all()
+    )
+    for f in empty:
+        db.session.delete(f)
+    if empty:
+        db.session.commit()
 
 
 @items_bp.route("/")
@@ -79,271 +74,56 @@ def list_items():
         "owner": None,  # handled separately
     }
 
-    sort_by = request.args.get("sort")
-    sort_dir = request.args.get("dir")
+    sort_by = request.args.get("sort") or session.get("items_sort_by") or "added_at"
+    sort_dir = request.args.get("dir") or session.get("items_sort_dir") or "desc"
 
-    # If not provided in query, fall back to session values
-    if not sort_by:
-        sort_by = session.get("items_sort_by", "name")
-    if not sort_dir:
-        sort_dir = session.get("items_sort_dir", "asc")
-
-    # Validate sort_by
     if sort_by not in allowed_sort_columns:
-        sort_by = "name"
-
-    # Validate sort_dir
+        sort_by = "added_at"
     if sort_dir not in ("asc", "desc"):
-        sort_dir = "asc"
+        sort_dir = "desc"
 
-    # Remember in session
     session["items_sort_by"] = sort_by
     session["items_sort_dir"] = sort_dir
 
-    # Base query: per-user separation
-    if current_user.is_admin:
-        query = Item.query.outerjoin(Folder)
-    else:
-        query = Item.query.filter_by(user_id=current_user.id).outerjoin(Folder)
+    query = Item.query
 
-    # Sorting
+    # non-admin users only see their own items
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+
+    # join folders for folder sorting
     if sort_by == "folder":
-        sort_column = Folder.name
-    elif sort_by == "owner":
+        query = query.outerjoin(Folder)
+
+    if sort_by == "owner":
+        # only admins can sort by owner
         if current_user.is_admin:
-            from ..models import User  # local import to avoid circular
-
-            query = query.join(User)
-            sort_column = User.username
+            query = query.outerjoin(Item.user)
+            col = db.func.lower(db.func.coalesce(db.literal_column("users.username"), ""))
         else:
-            sort_column = Item.name
+            col = Item.added_at
     else:
-        sort_column = allowed_sort_columns[sort_by]
+        col = allowed_sort_columns[sort_by]
 
-    if sort_dir == "desc":
-        sort_column = sort_column.desc()
+    if sort_dir == "asc":
+        query = query.order_by(col.asc().nullslast())
+    else:
+        query = query.order_by(col.desc().nullslast())
 
-    items = query.order_by(sort_column).all()
+    items = query.all()
 
-    # Group items by folder/category (for collapsible groups in the view)
-    folder_groups: dict[str, list[Item]] = {}
+    # group items by folder/category name
+    folders = {}
     for item in items:
-        group_name = item.folder.name if item.folder else "No category"
-        if group_name not in folder_groups:
-            folder_groups[group_name] = []
-        folder_groups[group_name].append(item)
+        folder_name = item.folder.name if item.folder else "Uncategorized"
+        folders.setdefault(folder_name, []).append(item)
 
     return render_template(
         "items/list.html",
-        folders=folder_groups,
+        folders=folders,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
-
-
-@items_bp.route("/bulk", methods=["POST"])
-@login_required
-def bulk_update():
-    """
-    Bulk actions on items from the list view:
-    - activate
-    - deactivate
-    - delete
-    - edit (redirects to bulk edit form)
-    """
-    if not _require_edit_permission():
-        return redirect(url_for("items.list_items"))
-
-    raw_ids = request.form.getlist("item_ids")
-    action = request.form.get("bulk_action", "").strip()
-
-    # Parse ids safely
-    try:
-        item_ids = [int(x) for x in raw_ids]
-    except ValueError:
-        item_ids = []
-
-    if not item_ids:
-        flash("No items selected for bulk action.", "warning")
-        return redirect(url_for("items.list_items"))
-
-    if action not in {"activate", "deactivate", "delete", "edit"}:
-        flash("Unknown bulk action.", "danger")
-        return redirect(url_for("items.list_items"))
-
-    # Base query; non-admins can only touch their own items
-    query = Item.query.filter(Item.id.in_(item_ids))
-    if not current_user.is_admin:
-        query = query.filter_by(user_id=current_user.id)
-
-    items = query.all()
-    if not items:
-        flash("You are not allowed to modify the selected items.", "danger")
-        return redirect(url_for("items.list_items"))
-
-    # Bulk EDIT: redirect to dedicated form
-    if action == "edit":
-        ids_str = ",".join(str(i.id) for i in items)
-        return redirect(url_for("items.bulk_edit", ids=ids_str))
-
-    # Other bulk actions operate in-place
-    updated = 0
-    deleted = 0
-
-    if action == "activate":
-        for item in items:
-            if not item.is_active:
-                item.is_active = True
-                updated += 1
-    elif action == "deactivate":
-        for item in items:
-            if item.is_active:
-                item.is_active = False
-                updated += 1
-    elif action == "delete":
-        for item in items:
-            db.session.delete(item)
-            deleted += 1
-        # After deletions, clean up any now-empty categories (all users, for simplicity)
-        _cleanup_empty_folders()
-
-    db.session.commit()
-
-    if action == "delete":
-        flash(f"Deleted {deleted} items.", "success")
-    else:
-        flash(f"Updated {updated} items.", "success")
-
-    return redirect(url_for("items.list_items"))
-
-
-@items_bp.route("/bulk-edit", methods=["GET", "POST"])
-@login_required
-def bulk_edit():
-    """
-    Bulk edit form:
-    - same feel as edit form
-    - unique fields disabled
-    - editable: category, active, notifications
-    """
-    if not _require_edit_permission():
-        return redirect(url_for("items.list_items"))
-
-    if request.method == "GET":
-        ids_param = request.args.get("ids", "")
-        raw_ids = [x for x in ids_param.split(",") if x.strip()]
-        try:
-            item_ids = [int(x) for x in raw_ids]
-        except ValueError:
-            item_ids = []
-
-        if not item_ids:
-            flash("No items selected.", "warning")
-            return redirect(url_for("items.list_items"))
-
-        query = Item.query.filter(Item.id.in_(item_ids))
-        if not current_user.is_admin:
-            query = query.filter_by(user_id=current_user.id)
-
-        items = query.all()
-        if not items:
-            flash("You are not allowed to edit the selected items.", "danger")
-            return redirect(url_for("items.list_items"))
-
-        # Categories for this user (or for admin: use owner of first item)
-        owner_id = items[0].user_id
-        categories = (
-            Folder.query.filter_by(user_id=owner_id).order_by(Folder.name.asc()).all()
-        )
-
-        # Pre-select category only if all share the same one
-        first_folder = items[0].folder
-        same_folder = all(
-            i.folder and first_folder and i.folder.id == first_folder.id for i in items
-        )
-        default_folder_name = first_folder.name if same_folder and first_folder else ""
-
-        return render_template(
-            "items/bulk_edit.html",
-            items=items,
-            categories=categories,
-            default_folder_name=default_folder_name,
-        )
-
-    # POST (update all selected items)
-    raw_ids = request.form.getlist("item_ids")
-    try:
-        item_ids = [int(x) for x in raw_ids]
-    except ValueError:
-        item_ids = []
-
-    if not item_ids:
-        flash("No items selected.", "warning")
-        return redirect(url_for("items.list_items"))
-
-    query = Item.query.filter(Item.id.in_(item_ids))
-    if not current_user.is_admin:
-        query = query.filter_by(user_id=current_user.id)
-
-    items = query.all()
-    if not items:
-        flash("You are not allowed to edit the selected items.", "danger")
-        return redirect(url_for("items.list_items"))
-
-    folder_name = request.form.get("folder_name", "").strip()
-    is_active = request.form.get("is_active") == "on"
-    has_is_active = "is_active" in request.form  # always there; simple behaviour
-
-    notify_enabled = request.form.get("notify_enabled") == "on"
-    has_notify_enabled = "notify_enabled" in request.form
-
-    notify_threshold_raw = request.form.get("notify_threshold", "").strip()
-    notify_threshold = None
-    if notify_threshold_raw:
-        try:
-            notify_threshold = int(notify_threshold_raw)
-        except ValueError:
-            flash("Notification threshold must be an integer.", "danger")
-            # Reload with same items
-            owner_id = items[0].user_id
-            categories = (
-                Folder.query.filter_by(user_id=owner_id)
-                .order_by(Folder.name.asc())
-                .all()
-            )
-            return render_template(
-                "items/bulk_edit.html",
-                items=items,
-                categories=categories,
-                default_folder_name=folder_name,
-            )
-
-    # Apply changes to each item
-    for item in items:
-        old_folder_id = item.folder_id
-
-        # Category
-        if folder_name:
-            folder = _get_or_create_folder_for_user(item.user_id, folder_name)
-            item.folder = folder
-        else:
-            item.folder = None
-
-        # Active flag (simple: apply same to all)
-        item.is_active = is_active if has_is_active else item.is_active
-
-        # Notifications
-        item.notify_enabled = (
-            notify_enabled if has_notify_enabled else item.notify_enabled
-        )
-        item.notify_threshold = notify_threshold
-
-    # Clean up any categories that became empty after moving items
-    _cleanup_empty_folders()
-
-    db.session.commit()
-    flash(f"Bulk-edited {len(items)} items.", "success")
-    return redirect(url_for("items.list_items"))
 
 
 @items_bp.route("/add", methods=["GET", "POST"])
@@ -358,76 +138,50 @@ def add_item():
         country_code = request.form.get("country_code", "").strip().lower()
         store_ids = request.form.get("store_ids", "").strip()
         folder_name = request.form.get("folder_name", "").strip()
-        is_active = request.form.get("is_active") == "on"
-
-        notify_enabled = request.form.get("notify_enabled") == "on"
-        notify_threshold_raw = request.form.get("notify_threshold", "").strip()
-        notify_threshold = None
-        if notify_threshold_raw:
-            try:
-                notify_threshold = int(notify_threshold_raw)
-            except ValueError:
-                flash("Notification threshold must be an integer.", "danger")
-                categories = (
-                    Folder.query.filter_by(user_id=current_user.id)
-                    .order_by(Folder.name.asc())
-                    .all()
-                )
-                return render_template(
-                    "items/form.html",
-                    item=None,
-                    default_country_code=country_code,
-                    default_store_ids=store_ids,
-                    default_folder_name=folder_name,
-                    categories=categories,
-                )
 
         if not name or not product_id or not country_code:
             flash("Name, product ID and country code are required.", "danger")
         else:
-            folder = _get_or_create_folder_for_user(current_user.id, folder_name)
             item = Item(
                 name=name,
                 product_id=product_id,
                 country_code=country_code,
                 store_ids=store_ids or None,
-                is_active=is_active,
-                notify_enabled=notify_enabled,
-                notify_threshold=notify_threshold,
                 user_id=current_user.id,
-                folder=folder,
+                is_active=True,
             )
+
+            item.notify_enabled = request.form.get("notify_enabled") == "on"
+            notify_threshold_raw = request.form.get("notify_threshold", "").strip()
+            if notify_threshold_raw:
+                try:
+                    item.notify_threshold = int(notify_threshold_raw)
+                except ValueError:
+                    flash("Notification threshold must be an integer.", "danger")
+                    categories = (
+                        Folder.query.filter_by(user_id=current_user.id)
+                        .order_by(Folder.name.asc())
+                        .all()
+                    )
+                    return render_template(
+                        "items/form.html", item=None, categories=categories
+                    )
+
+            if folder_name:
+                folder = _get_or_create_folder_for_user(current_user.id, folder_name)
+                item.folder = folder
+
             db.session.add(item)
             db.session.commit()
             flash("Item created.", "success")
             return redirect(url_for("items.list_items"))
-
-    # GET: prefill with last item's country/store/category to "remember" settings
-    last_item = (
-        Item.query.filter_by(user_id=current_user.id)
-        .order_by(Item.id.desc())
-        .first()
-    )
-    default_country_code = last_item.country_code if last_item else ""
-    default_store_ids = last_item.store_ids if last_item and last_item.store_ids else ""
-    default_folder_name = (
-        last_item.folder.name if last_item and last_item.folder else ""
-    )
 
     categories = (
         Folder.query.filter_by(user_id=current_user.id)
         .order_by(Folder.name.asc())
         .all()
     )
-
-    return render_template(
-        "items/form.html",
-        item=None,
-        default_country_code=default_country_code,
-        default_store_ids=default_store_ids,
-        default_folder_name=default_folder_name,
-        categories=categories,
-    )
+    return render_template("items/form.html", item=None, categories=categories)
 
 
 @items_bp.route("/<int:item_id>/edit", methods=["GET", "POST"])
@@ -496,6 +250,130 @@ def edit_item(item_id):
     return render_template("items/form.html", item=item, categories=categories)
 
 
+@items_bp.route("/bulk", methods=["POST"])
+@login_required
+def bulk_update():
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    action = request.form.get("bulk_action")
+    item_ids = request.form.getlist("item_ids")
+
+    if not item_ids:
+        flash("Please select at least one item.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    items = Item.query.filter(Item.id.in_(item_ids)).all()
+
+    # Non-admin users can only bulk-edit their own items
+    if not current_user.is_admin:
+        for it in items:
+            if it.user_id != current_user.id:
+                flash("You are not allowed to bulk edit items you do not own.", "danger")
+                return redirect(url_for("items.list_items"))
+
+    if action == "activate":
+        for it in items:
+            it.is_active = True
+        db.session.commit()
+        flash("Items activated.", "success")
+
+    elif action == "deactivate":
+        for it in items:
+            it.is_active = False
+        db.session.commit()
+        flash("Items deactivated.", "success")
+
+    elif action == "delete":
+        user_id = items[0].user_id if items else None
+        for it in items:
+            db.session.delete(it)
+        if user_id:
+            _cleanup_empty_folders(user_id)
+        db.session.commit()
+        flash("Items deleted.", "info")
+
+    elif action == "edit":
+        categories = (
+            Folder.query.filter_by(user_id=items[0].user_id)
+            .order_by(Folder.name.asc())
+            .all()
+        )
+        default_folder_name = items[0].folder.name if items[0].folder else ""
+        return render_template(
+            "items/bulk_edit.html",
+            items=items,
+            categories=categories,
+            default_folder_name=default_folder_name,
+        )
+
+    else:
+        flash("Unknown bulk action.", "danger")
+
+    return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/bulk-edit", methods=["POST"])
+@login_required
+def bulk_edit_submit():
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    item_ids = request.form.getlist("item_ids")
+    items = Item.query.filter(Item.id.in_(item_ids)).all()
+
+    if not items:
+        flash("No items selected.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    # Non-admin users can only bulk-edit their own items
+    if not current_user.is_admin:
+        for it in items:
+            if it.user_id != current_user.id:
+                flash("You are not allowed to bulk edit items you do not own.", "danger")
+                return redirect(url_for("items.list_items"))
+
+    folder_name = request.form.get("folder_name", "").strip()
+    is_active = request.form.get("is_active") == "on"
+
+    notify_enabled = request.form.get("notify_enabled") == "on"
+    notify_threshold_raw = request.form.get("notify_threshold", "").strip()
+    notify_threshold = None
+    if notify_threshold_raw:
+        try:
+            notify_threshold = int(notify_threshold_raw)
+        except ValueError:
+            flash("Notification threshold must be an integer.", "danger")
+            categories = (
+                Folder.query.filter_by(user_id=items[0].user_id)
+                .order_by(Folder.name.asc())
+                .all()
+            )
+            default_folder_name = items[0].folder.name if items[0].folder else ""
+            return render_template(
+                "items/bulk_edit.html",
+                items=items,
+                categories=categories,
+                default_folder_name=default_folder_name,
+            )
+
+    for it in items:
+        it.is_active = is_active
+        it.notify_enabled = notify_enabled
+        it.notify_threshold = notify_threshold
+
+        if folder_name:
+            folder = _get_or_create_folder_for_user(it.user_id, folder_name)
+            it.folder = folder
+        else:
+            it.folder = None
+
+    _cleanup_empty_folders(items[0].user_id)
+    db.session.commit()
+    flash("Bulk changes applied.", "success")
+    return redirect(url_for("items.list_items"))
+
+
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])
 @login_required
 def delete_item(item_id):
@@ -526,28 +404,57 @@ def detail(item_id):
         flash("You are not allowed to view this item.", "danger")
         return redirect(url_for("items.list_items"))
 
-    # last 30 snapshots (table)
-    history = (
+    # -----------------------------
+    # History table (only stock changes)
+    # -----------------------------
+    raw_history = (
         AvailabilitySnapshot.query.filter_by(item_id=item.id)
         .order_by(AvailabilitySnapshot.timestamp.desc())
-        .limit(30)
+        .limit(200)
         .all()
     )
 
-    # last 30 snapshots for chart in ascending order
-    total_count = AvailabilitySnapshot.query.filter_by(item_id=item.id).count()
-    offset = max(0, total_count - 30)
-    chart_history = (
-        AvailabilitySnapshot.query.filter_by(item_id=item.id)
-        .order_by(AvailabilitySnapshot.timestamp.asc())
-        .offset(offset)
-        .limit(30)
-        .all()
-    )
+    history_changed = []
+    prev_stock = object()
+    for snap in raw_history:
+        cur_stock = snap.total_stock
+        if cur_stock != prev_stock:
+            history_changed.append(snap)
+            prev_stock = cur_stock
+        if len(history_changed) >= 30:
+            break
 
-    # Prepare data for chart.js (format timestamps as date + HH:MM)
+    # -----------------------------
+    # Chart history (timerange filter)
+    # -----------------------------
+    range_key = request.args.get("range", "30d").lower()
+    now = datetime.utcnow()
+
+    cutoff = None
+    if range_key == "24h":
+        cutoff = now - timedelta(hours=24)
+    elif range_key == "7d":
+        cutoff = now - timedelta(days=7)
+    elif range_key == "30d":
+        cutoff = now - timedelta(days=30)
+    elif range_key == "all":
+        cutoff = None
+    else:
+        range_key = "30d"
+        cutoff = now - timedelta(days=30)
+
+    chart_query = AvailabilitySnapshot.query.filter_by(item_id=item.id)
+    if cutoff is not None:
+        chart_query = chart_query.filter(AvailabilitySnapshot.timestamp >= cutoff)
+
+    chart_history = chart_query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
+
+    # Keep chart sane for huge histories
+    if len(chart_history) > 500:
+        chart_history = chart_history[-500:]
+
     chart_labels = [
-        (h.timestamp or datetime.utcnow()).strftime("%Y-%m-%d %H:%M")
+        (h.timestamp or now).strftime("%Y-%m-%d %H:%M")
         for h in chart_history
     ]
     chart_stock = [h.total_stock or 0 for h in chart_history]
@@ -558,12 +465,13 @@ def detail(item_id):
     return render_template(
         "items/detail.html",
         item=item,
-        history=history,
+        history=history_changed,
         chart_history=chart_history,
         chart_labels=chart_labels,
         chart_stock=chart_stock,
         live_data=live_data,
         live_error=live_error,
+        range_key=range_key,
     )
 
 

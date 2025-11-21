@@ -16,11 +16,9 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h2 class="mb-0">{{ item.name }}</h2>
-    <div class="text-muted">
-      Product ID: {{ item.product_id }} · Country: {{ item.country_code }}
-      · Stores: {{ item.store_ids or "All" }}
-    </div>
+    <small class="text-muted">Product ID: {{ item.product_id }}</small>
   </div>
+
   <div class="text-end">
     {% if current_user.can_edit_items %}
     <form method="post" action="{{ url_for('items.check_single', item_id=item.id) }}" class="d-inline">
@@ -40,15 +38,54 @@
   <div class="col-md-4">
     <div class="card stat-card">
       <div class="card-body">
-        <div class="stat-label">Current Stock</div>
-        <div class="stat-value">
-          {{ item.last_stock if item.last_stock is not none else "-" }}
+        <div class="stat-label">Country</div>
+        <div class="stat-value-sm">{{ item.country_code }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Stores</div>
+        <div class="stat-value-sm">{{ item.store_ids or "All stores" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Active</div>
+        <div class="stat-value-sm">
+          {% if item.is_active %}
+            <span class="badge bg-success">Active</span>
+          {% else %}
+            <span class="badge bg-secondary">Inactive</span>
+          {% endif %}
         </div>
-        <div class="stat-label mt-2">Probability</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Last stock</div>
+        <div class="stat-value-sm">{{ item.last_stock if item.last_stock is not none else "-" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="stat-label">Last probability</div>
         <div class="stat-value-sm">{{ item.last_probability or "-" }}</div>
       </div>
     </div>
   </div>
+
   <div class="col-md-4">
     <div class="card stat-card">
       <div class="card-body">
@@ -63,6 +100,7 @@
       </div>
     </div>
   </div>
+
   <div class="col-md-4">
     <div class="card stat-card">
       <div class="card-body">
@@ -79,7 +117,7 @@
   </div>
 </div>
 
-<!-- NEW: live per-store availability -->
+<!-- live per-store availability -->
 <div class="card mb-4 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center">
     <strong>Live per-store availability</strong>
@@ -119,18 +157,34 @@
   </div>
 </div>
 
+<!-- historical chart + range -->
 <div class="card mb-4 shadow-sm">
-  <div class="card-header">
-    <strong>Historical stock (last {{ chart_history|length }} samples)</strong>
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Historical stock</strong>
+
+    <div class="d-flex align-items-center gap-2">
+      <small class="text-muted me-1">Range:</small>
+      <select id="chart-range" class="form-select form-select-sm" style="width:auto;">
+        <option value="24h" {% if range_key == "24h" %}selected{% endif %}>Last 24h</option>
+        <option value="7d" {% if range_key == "7d" %}selected{% endif %}>Last 7d</option>
+        <option value="30d" {% if range_key == "30d" %}selected{% endif %}>Last 30d</option>
+        <option value="all" {% if range_key == "all" %}selected{% endif %}>All time</option>
+      </select>
+      <small class="text-muted ms-2">
+        ({{ chart_history|length }} samples)
+      </small>
+    </div>
   </div>
   <div class="card-body">
     <canvas id="stockHistoryChart" height="120"></canvas>
   </div>
 </div>
 
+<!-- history table (only changes) -->
 <div class="card shadow-sm">
   <div class="card-header">
     <strong>History table</strong>
+    <div class="small text-muted">Only times when total stock changed.</div>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -167,5 +221,18 @@
     </div>
   </div>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const sel = document.getElementById("chart-range");
+  if (!sel) return;
+
+  sel.addEventListener("change", function () {
+    const url = new URL(window.location.href);
+    url.searchParams.set("range", sel.value);
+    window.location.href = url.toString();
+  });
+});
+</script>
 
 {% endblock %}
