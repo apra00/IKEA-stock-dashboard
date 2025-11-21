@@ -44,13 +44,26 @@
   .dot-green { background:#198754; }
   .dot-red { background:#dc3545; }
   .dot-gray { background:#adb5bd; }
+
+  .btn-refresh {
+    position: relative;
+    min-width: 190px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+  }
+  .btn-refresh .spinner-border { display: none; }
+  .btn-refresh.is-loading .spinner-border { display: inline-block; }
+  .btn-refresh.is-loading .btn-label { opacity: .85; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- HERO HEADER -->
-<div class="dash-hero rounded-4 p-4 mb-4 shadow-sm">
+<div class="dash-hero rounded-4 p-4 mb-4 shadow-sm"
+     data-check-running="{{ '1' if check_running else '0' }}"
+     data-status-url="{{ url_for('dashboard.check_all_status') }}">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
     <div>
       <h2 class="mb-1 fw-bold">
@@ -58,8 +71,8 @@
       </h2>
       <div class="text-muted">
         Welcome back, <strong>{{ current_user.username }}</strong>.
-        {% if last_check %}
-          Last full check: <span class="fw-semibold">{{ last_check.strftime('%Y-%m-%d %H:%M') }}</span>
+        {% if last_check_ago %}
+          Last full check: <span class="fw-semibold">{{ last_check_ago }}</span>
         {% else %}
           No checks yet.
         {% endif %}
@@ -75,13 +88,17 @@
       <a href="{{ url_for('items.list_items') }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-list-ul me-1"></i>Items
       </a>
+
       {% if current_user.can_edit_items %}
-      <form method="post" action="{{ url_for('dashboard.check_all') }}" class="d-inline">
+      <form id="check-all-form" method="post" action="{{ url_for('dashboard.check_all') }}" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-primary btn-sm shadow-sm" type="submit">
-          <i class="bi bi-arrow-clockwise me-1"></i>Run availability check
+        <button id="check-all-btn" class="btn btn-primary btn-sm shadow-sm btn-refresh" type="submit">
+          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          <i class="bi bi-arrow-clockwise"></i>
+          <span class="btn-label">Run availability check</span>
         </button>
       </form>
+
       <a href="{{ url_for('items.add_item') }}" class="btn btn-outline-primary btn-sm">
         <i class="bi bi-plus-circle me-1"></i>Add item
       </a>
@@ -161,7 +178,6 @@
 
 <!-- HEALTH + QUICK LISTS -->
 <div class="row g-3 mb-4">
-  <!-- Health Ring -->
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
       <div class="card-header bg-white border-0 pt-3 px-3">
@@ -172,14 +188,10 @@
       </div>
       <div class="card-body">
         <canvas id="healthChart" height="180"></canvas>
-        <div class="mt-3 small text-muted">
-          Green = available, red = out of stock, gray = unknown/not checked.
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- Recently checked -->
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
       <div class="card-header bg-white border-0 pt-3 px-3">
@@ -224,7 +236,6 @@
     </div>
   </div>
 
-  <!-- Recently added -->
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
       <div class="card-header bg-white border-0 pt-3 px-3">
@@ -258,7 +269,6 @@
   </div>
 </div>
 
-<!-- CHANGED RECENTLY -->
 {% if changed_recently_items %}
 <div class="card shadow-sm rounded-4 mb-4">
   <div class="card-header bg-white border-0 pt-3 px-3">
@@ -292,7 +302,6 @@
 </div>
 {% endif %}
 
-<!-- ACTIVITY FEED -->
 <div class="card shadow-sm rounded-4">
   <div class="card-header bg-white border-0 pt-3 px-3">
     <strong>Latest activity</strong>
@@ -311,9 +320,7 @@
         <tbody>
         {% for snap in latest_snapshots %}
           <tr>
-            <td>
-              {{ snap.timestamp.strftime('%Y-%m-%d %H:%M') }}
-            </td>
+            <td>{{ snap.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
             <td>
               <a href="{{ url_for('items.detail', item_id=snap.item.id) }}" class="fw-semibold text-decoration-none">
                 {{ snap.item.name }}
@@ -340,25 +347,112 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+  // Health chart
   const ctx = document.getElementById("healthChart");
-  if (!ctx) return;
-
-  new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      labels: ["In stock", "Out of stock", "Unknown"],
-      datasets: [{
-        data: [{{ in_stock_items }}, {{ out_of_stock_items }}, {{ unknown_stock_items }}],
-        borderWidth: 0,
-        hoverOffset: 6
-      }]
-    },
-    options: {
-      cutout: "70%",
-      plugins: {
-        legend: { position: "bottom" },
-        tooltip: { enabled: true }
+  if (ctx) {
+    new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: ["In stock", "Out of stock", "Unknown"],
+        datasets: [{
+          data: [{{ in_stock_items }}, {{ out_of_stock_items }}, {{ unknown_stock_items }}],
+          borderWidth: 0,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        cutout: "70%",
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: { enabled: true }
+        }
       }
+    });
+  }
+
+  // -------------------------------------------------------
+  // Async "Run availability check" with persistence + poll
+  // -------------------------------------------------------
+  const form = document.getElementById("check-all-form");
+  const btn = document.getElementById("check-all-btn");
+  const hero = document.querySelector(".dash-hero");
+  if (!form || !btn || !hero) return;
+
+  const USER_KEY = "{{ current_user.username }}";
+  const LS_KEY = "dashboardCheckRunning::" + USER_KEY;
+  const STATUS_URL = hero.dataset.statusUrl;
+  const serverSaysRunning = hero.dataset.checkRunning === "1";
+
+  let pollTimer = null;
+
+  function setLoading(on) {
+    btn.disabled = on;
+    btn.classList.toggle("is-loading", on);
+  }
+
+  async function pollStatus() {
+    try {
+      const res = await fetch(STATUS_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("status failed");
+      const js = await res.json();
+
+      if (!js.running) {
+        localStorage.removeItem(LS_KEY);
+        setLoading(false);
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+        // refresh to reflect new data
+        window.location.reload();
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      // If status check fails, keep spinner if we believe it's running.
+      setLoading(true);
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollStatus, 2000);
+    pollStatus();
+  }
+
+  // Restore spinner after reload if check still running
+  const lsRunningStamp = localStorage.getItem(LS_KEY);
+  if (lsRunningStamp || serverSaysRunning) {
+    setLoading(true);
+    startPolling();
+  }
+
+  // Submit handler
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    // Persist running state immediately
+    localStorage.setItem(LS_KEY, String(Date.now()));
+    setLoading(true);
+    startPolling();
+
+    try {
+      const fd = new FormData(form);
+      const res = await fetch(form.action, {
+        method: "POST",
+        body: fd,
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+
+      if (!res.ok) throw new Error("Request failed");
+
+      // We do NOT clear LS here yet — polling will clear it
+      // once the server reports running=false.
+      pollStatus();
+    } catch (err) {
+      console.error(err);
+      localStorage.removeItem(LS_KEY);
+      setLoading(false);
+      if (pollTimer) clearInterval(pollTimer);
+      alert("Availability check failed. Please try again.");
     }
   });
 });
