@@ -1,7 +1,16 @@
 from datetime import datetime, timedelta
-from threading import Lock
+from threading import Lock, Thread
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
+from flask import (
+    Blueprint,
+    render_template,
+    redirect,
+    url_for,
+    flash,
+    request,
+    jsonify,
+    current_app,
+)
 from flask_login import login_required, current_user
 from sqlalchemy import func, or_
 
@@ -13,14 +22,12 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------------------------------------------
 # In-memory "check running" tracking (best effort)
-# NOTE: if you run multiple gunicorn workers, each worker has its own
-# memory. This still gives good UX in most setups.
 # -------------------------------------------------------------------
 _CHECK_RUNNING = {}
 _CHECK_LOCK = Lock()
 
 
-def _set_running(user_id: int, running: bool):
+def _set_running(user_id, running):
     with _CHECK_LOCK:
         if running:
             _CHECK_RUNNING[user_id] = datetime.utcnow()
@@ -28,12 +35,12 @@ def _set_running(user_id: int, running: bool):
             _CHECK_RUNNING.pop(user_id, None)
 
 
-def _is_running(user_id: int) -> bool:
+def _is_running(user_id):
     with _CHECK_LOCK:
         return user_id in _CHECK_RUNNING
 
 
-def _humanize_ago(dt: datetime | None) -> str | None:
+def _humanize_ago(dt):
     """Return a short 'how long ago' string like '8m ago', '2h ago', '3d ago'."""
     if not dt:
         return None
@@ -69,9 +76,36 @@ def _humanize_ago(dt: datetime | None) -> str | None:
     return f"{years}y ago"
 
 
+def _run_check_all_in_background(app, user_id):
+    """
+    Background runner for check_all.
+    The Flask app is passed in so we can create an app context in this thread.
+    """
+    with app.app_context():
+        try:
+            from ..models import User  # local import to avoid circulars
+
+            user = User.query.get(user_id)
+            # If user disappeared, just stop gracefully
+            if not user:
+                return
+
+            # Run the actual IKEA checks
+            check_all_active_items(user)
+        except Exception as exc:  # noqa: F841
+            # Best-effort logging; don't crash the thread silently
+            try:
+                app.logger.exception("Background check_all_active_items failed")
+            except Exception:
+                pass
+        finally:
+            _set_running(user_id, False)
+
+
 @dashboard_bp.route("/")
 @login_required
 def index():
+    # Per-user separation on dashboard
     item_query = Item.query
     if not current_user.is_admin:
         item_query = item_query.filter_by(user_id=current_user.id)
@@ -96,6 +130,7 @@ def index():
     last_check = item_query.with_entities(func.max(Item.last_checked)).scalar()
     last_check_ago = _humanize_ago(last_check)
 
+    # Latest activity snapshots
     snapshots_query = (
         db.session.query(AvailabilitySnapshot)
         .join(Item, AvailabilitySnapshot.item_id == Item.id)
@@ -107,18 +142,21 @@ def index():
         AvailabilitySnapshot.timestamp.desc()
     ).limit(12).all()
 
+    # Recently checked items (for quick glance list)
     recently_checked_items = (
         item_query.order_by(Item.last_checked.desc().nullslast())
         .limit(6)
         .all()
     )
 
+    # Recently added items
     recently_added_items = (
         item_query.order_by(Item.added_at.desc().nullslast())
         .limit(6)
         .all()
     )
 
+    # Items that changed stock in last 24h (simple heuristic)
     cutoff_24h = datetime.utcnow() - timedelta(hours=24)
     changed_item_ids = (
         db.session.query(AvailabilitySnapshot.item_id)
@@ -175,14 +213,26 @@ def check_all():
         flash("You are not authorized to perform this action.", "danger")
         return redirect(url_for("dashboard.index"))
 
+    # If already running, don't start another one
+    if _is_running(current_user.id):
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"status": "ok", "running": True}), 202
+        flash("A refresh is already running.", "info")
+        return redirect(url_for("dashboard.index"))
+
+    # Mark running and start a background thread
     _set_running(current_user.id, True)
-    try:
-        ok, failed = check_all_active_items(current_user)
-    finally:
-        _set_running(current_user.id, False)
+    app = current_app._get_current_object()
+    t = Thread(
+        target=_run_check_all_in_background,
+        args=(app, current_user.id),
+        daemon=True,
+    )
+    t.start()
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"status": "ok", "ok": ok, "failed": failed}), 200
+        # Frontend will keep spinner + poll /check-all/status
+        return jsonify({"status": "ok", "running": True}), 202
 
-    flash(f"Availability check finished. OK: {ok}, failed: {failed}", "info")
+    flash("Availability refresh started in background.", "info")
     return redirect(url_for("dashboard.index"))
