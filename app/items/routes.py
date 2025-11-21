@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 
 from flask import (
     Blueprint,
@@ -96,7 +97,6 @@ def list_items():
         query = query.outerjoin(Folder)
 
     if sort_by == "owner":
-        # only admins can sort by owner
         if current_user.is_admin:
             query = query.outerjoin(Item.user)
             col = db.func.lower(db.func.coalesce(db.literal_column("users.username"), ""))
@@ -112,7 +112,6 @@ def list_items():
 
     items = query.all()
 
-    # group items by folder/category name
     folders = {}
     for item in items:
         folder_name = item.folder.name if item.folder else "Uncategorized"
@@ -192,7 +191,6 @@ def edit_item(item_id):
 
     item = Item.query.get_or_404(item_id)
 
-    # Non-admin users can edit only their own items
     if not current_user.is_admin and item.user_id != current_user.id:
         flash("You are not allowed to edit this item.", "danger")
         return redirect(url_for("items.list_items"))
@@ -230,13 +228,11 @@ def edit_item(item_id):
             folder = _get_or_create_folder_for_user(item.user_id, folder_name)
             item.folder = folder
         else:
-            # Item is being removed from its category
             item.folder = None
 
         if not item.name or not item.product_id or not item.country_code:
             flash("Name, product ID and country code are required.", "danger")
         else:
-            # Clean up any categories that became empty after moving/removing this item
             _cleanup_empty_folders(item.user_id)
             db.session.commit()
             flash("Item updated.", "success")
@@ -265,7 +261,6 @@ def bulk_update():
 
     items = Item.query.filter(Item.id.in_(item_ids)).all()
 
-    # Non-admin users can only bulk-edit their own items
     if not current_user.is_admin:
         for it in items:
             if it.user_id != current_user.id:
@@ -326,7 +321,6 @@ def bulk_edit_submit():
         flash("No items selected.", "danger")
         return redirect(url_for("items.list_items"))
 
-    # Non-admin users can only bulk-edit their own items
     if not current_user.is_admin:
         for it in items:
             if it.user_id != current_user.id:
@@ -388,11 +382,68 @@ def delete_item(item_id):
 
     user_id = item.user_id
     db.session.delete(item)
-    # Clean up categories for that user which are now empty
     _cleanup_empty_folders(user_id)
     db.session.commit()
     flash("Item deleted.", "info")
     return redirect(url_for("items.list_items"))
+
+
+def _extract_store_lines_from_snapshots(chart_history, tracked_store_ids):
+    """
+    From AvailabilitySnapshot.raw_json, build per-store time series.
+    Returns (store_order, store_names, series_dict).
+
+    series_dict[store_id] = [stock_or_None_per_timestamp]
+    """
+    store_names = {}
+    series = {sid: [] for sid in tracked_store_ids}
+
+    for snap in chart_history:
+        raw = snap.raw_json
+        try:
+            data = json.loads(raw) if raw else []
+        except Exception:
+            data = []
+
+        # Map store_id -> stock for this timestamp
+        stocks_this_time = {}
+
+        for entry in data or []:
+            if not isinstance(entry, dict):
+                continue
+
+            store = entry.get("store") or {}
+            store_id = (
+                store.get("buCode")
+                or store.get("id")
+                or entry.get("storeId")
+                or entry.get("storeCode")
+                or entry.get("buCode")
+                or entry.get("storeBuCode")
+            )
+            if store_id is None:
+                continue
+            store_id = str(store_id)
+
+            stock_val = entry.get("stock")
+            try:
+                stock_val = int(stock_val) if stock_val is not None else None
+            except Exception:
+                stock_val = None
+
+            stocks_this_time[store_id] = stock_val
+
+            # Remember store display name if present
+            store_name = store.get("name") or entry.get("storeName")
+            if store_name and store_id not in store_names:
+                store_names[store_id] = str(store_name)
+
+        # append aligned values
+        for sid in tracked_store_ids:
+            series[sid].append(stocks_this_time.get(sid))
+
+    store_order = tracked_store_ids[:]
+    return store_order, store_names, series
 
 
 @items_bp.route("/<int:item_id>")
@@ -448,16 +499,40 @@ def detail(item_id):
         chart_query = chart_query.filter(AvailabilitySnapshot.timestamp >= cutoff)
 
     chart_history = chart_query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
-
-    # Keep chart sane for huge histories
     if len(chart_history) > 500:
         chart_history = chart_history[-500:]
 
     chart_labels = [
-        (h.timestamp or now).strftime("%Y-%m-%d %H:%M")
-        for h in chart_history
+        (h.timestamp or now).strftime("%Y-%m-%d %H:%M") for h in chart_history
     ]
-    chart_stock = [h.total_stock or 0 for h in chart_history]
+
+    # -----------------------------
+    # NEW: per-store datasets when multiple stores tracked
+    # -----------------------------
+    tracked_store_ids = (
+        [s.strip() for s in (item.store_ids or "").split(",") if s.strip()]
+        if item.store_ids
+        else []
+    )
+
+    chart_datasets = []
+
+    if len(tracked_store_ids) >= 2:
+        store_order, store_names, series = _extract_store_lines_from_snapshots(
+            chart_history, tracked_store_ids
+        )
+        for sid in store_order:
+            chart_datasets.append(
+                {
+                    "label": store_names.get(sid, f"Store {sid}"),
+                    "data": [v if v is not None else 0 for v in series[sid]],
+                }
+            )
+    else:
+        # fallback to total stock line
+        chart_datasets = [
+            {"label": "Total stock", "data": [h.total_stock or 0 for h in chart_history]}
+        ]
 
     # Live per-store availability for detailed view
     live_data, live_error = get_live_availability_for_item(item)
@@ -468,7 +543,7 @@ def detail(item_id):
         history=history_changed,
         chart_history=chart_history,
         chart_labels=chart_labels,
-        chart_stock=chart_stock,
+        chart_datasets=chart_datasets,
         live_data=live_data,
         live_error=live_error,
         range_key=range_key,

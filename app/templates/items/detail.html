@@ -6,7 +6,7 @@
 <script>
   window.ITEM_HISTORY = {
     labels: {{ chart_labels|tojson }},
-    stock: {{ chart_stock|tojson }}
+    datasets: {{ chart_datasets|tojson }}
   };
 </script>
 {% endblock %}
@@ -117,50 +117,50 @@
   </div>
 </div>
 
-<!-- live per-store availability -->
+
+<!-- LIVE STORES -->
 <div class="card mb-4 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center">
     <strong>Live per-store availability</strong>
-    <small class="text-muted">
-      Data fetched in real-time from ikea-availability-checker
-    </small>
+    <small class="text-muted">Real-time data</small>
   </div>
   <div class="card-body p-0">
     {% if live_error %}
       <div class="alert alert-danger m-3">{{ live_error }}</div>
     {% elif not live_data %}
-      <div class="alert alert-warning m-3 mb-3">
-        No live availability data returned for this product.
-      </div>
+      <div class="alert alert-warning m-3">No live availability data.</div>
     {% else %}
-      <div class="table-responsive">
-        <table class="table table-hover mb-0 align-middle">
-          <thead class="table-light">
-            <tr>
-              <th>Store</th>
-              <th>Stock</th>
-              <th>Probability</th>
-            </tr>
-          </thead>
-          <tbody>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Store</th>
+            <th class="text-end">Stock</th>
+            <th class="text-end">Probability</th>
+          </tr>
+        </thead>
+        <tbody>
           {% for row in live_data %}
-            <tr>
-              <td>{{ row.store['name'] or row.storeName or '-' }}</td>
-              <td>{{ row.stock if row.stock is not none else '-' }}</td>
-              <td>{{ row.probability or '-' }}</td>
-            </tr>
+          <tr>
+            <td>{{ row.store['name'] or row.storeName or '-' }}</td>
+            <td class="text-end">{{ row.stock if row.stock is not none else "-" }}</td>
+            <td class="text-end">{{ row.probability or "-" }}</td>
+          </tr>
           {% endfor %}
-          </tbody>
-        </table>
-      </div>
+        </tbody>
+      </table>
+    </div>
     {% endif %}
   </div>
 </div>
 
-<!-- historical chart + range -->
+
+<!-- CHART -->
 <div class="card mb-4 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <strong>Historical stock</strong>
+    <strong>
+      Historical stock{% if item.store_ids and (item.store_ids.split(',')|length) >= 2 %} by store{% endif %}
+    </strong>
 
     <div class="d-flex align-items-center gap-2">
       <small class="text-muted me-1">Range:</small>
@@ -170,49 +170,53 @@
         <option value="30d" {% if range_key == "30d" %}selected{% endif %}>Last 30d</option>
         <option value="all" {% if range_key == "all" %}selected{% endif %}>All time</option>
       </select>
+
       <small class="text-muted ms-2">
         ({{ chart_history|length }} samples)
       </small>
     </div>
   </div>
+
   <div class="card-body">
     <canvas id="stockHistoryChart" height="120"></canvas>
   </div>
 </div>
 
-<!-- history table (only changes) -->
+
+<!-- HISTORY TABLE -->
 <div class="card shadow-sm">
   <div class="card-header">
-    <strong>History table</strong>
-    <div class="small text-muted">Only times when total stock changed.</div>
+    <strong>History (changes only)</strong>
+    <div class="small text-muted">Only timestamps with changed stock.</div>
   </div>
+
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-striped mb-0">
+      <table class="table table-striped table-hover mb-0 align-middle">
         <thead class="table-light">
           <tr>
-            <th>Time</th>
-            <th>Total stock</th>
-            <th>Probability</th>
+            <th class="text-nowrap">Time</th>
+            <th class="text-end text-nowrap">Total stock</th>
+            <th class="text-end text-nowrap">Probability</th>
           </tr>
         </thead>
         <tbody>
         {% for snap in history %}
           <tr>
-            <td>
+            <td class="text-nowrap">
               {% if snap.timestamp %}
                 {{ snap.timestamp.strftime('%Y-%m-%d %H:%M') }}
               {% else %}
                 -
               {% endif %}
             </td>
-            <td>{{ snap.total_stock if snap.total_stock is not none else "-" }}</td>
-            <td>{{ snap.probability_summary }}</td>
+            <td class="text-end">{{ snap.total_stock if snap.total_stock is not none else "-" }}</td>
+            <td class="text-end">{{ snap.probability_summary }}</td>
           </tr>
         {% else %}
           <tr>
             <td colspan="3" class="text-center text-muted py-3">
-              No history yet. Run an availability check to create snapshots.
+              No history yet.
             </td>
           </tr>
         {% endfor %}
@@ -221,6 +225,7 @@
     </div>
   </div>
 </div>
+
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {

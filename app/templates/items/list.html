@@ -1,54 +1,231 @@
 {% extends "base.html" %}
 {% block title %}Items – IKEA Availability{% endblock %}
+
+{% block head_extra %}
+<style>
+  .items-hero {
+    background: radial-gradient(1200px circle at 0% 0%, #0d6efd10, transparent 40%),
+                radial-gradient(1200px circle at 100% 0%, #20c99715, transparent 40%),
+                linear-gradient(180deg, #ffffff, #f8fafc);
+    border: 1px solid #e5edf6;
+  }
+  .items-hero h2 { letter-spacing: .01em; }
+  .chip {
+    font-size: .75rem;
+    border-radius: 999px;
+    padding: .2rem .6rem;
+    background: #f3f5f9;
+    color:#6c757d;
+    border: 1px solid #e1e5ee;
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    white-space: nowrap;
+  }
+  .folder-header {
+    background: linear-gradient(90deg, #f3f6ff, #f8fbff);
+    border-top: 1px solid #e0e7f5;
+    border-bottom: 1px solid #e0e7f5;
+  }
+  .folder-header:hover { background: linear-gradient(90deg, #e7efff, #f3f7ff); }
+  .folder-toggle-icon { transition: transform .15s ease; }
+  .table-items thead th {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color:#6c757d;
+    white-space: nowrap;
+  }
+  .table-items tbody td { vertical-align: middle; font-size: .9rem; }
+  .bulk-toolbar { border-bottom: 1px solid #edf0f7; background: #f8fafc; }
+  .bulk-toolbar-active { background: #102a43; color: #fff; }
+  .bulk-toolbar-active .btn { border-radius: 999px; }
+  .sticky-header-wrapper {
+    position: sticky; top: 0; z-index: 9;
+  }
+  .badge-active {
+    background: rgba(25,135,84,0.12);
+    color: #198754;
+    border-radius:999px;
+    padding: .25rem .55rem;
+    font-size:.75rem;
+  }
+  .badge-inactive {
+    background: rgba(108,117,125,0.15);
+    color: #6c757d;
+    border-radius:999px;
+    padding: .25rem .55rem;
+    font-size:.75rem;
+  }
+  .item-name-link { font-weight: 600; }
+  .item-name-link:hover { text-decoration: underline; }
+  .row-hover-soft tbody tr:hover:not(.folder-header) { background: #f8fbff; }
+  .floating-scroll-top {
+    position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 10; display: none;
+  }
+
+  /* -------- Mobile friendliness -------- */
+  @media (max-width: 992px) {
+    .items-hero { padding: 1rem !important; }
+    .items-hero .btn { width: 100%; }
+  }
+
+  @media (max-width: 768px) {
+    /* turn item rows into cards */
+    .table-items thead { display:none; }
+    .table-items tbody, .table-items tr, .table-items td { display:block; width:100%; }
+    .table-items tr.folder-header { display: table-row; }
+    .table-items tr.folder-header td { display: table-cell; }
+
+    .table-items tr.folder-rows {
+      background:#fff;
+      border-bottom: none;
+      margin: .6rem .6rem .8rem;
+      border: 1px solid #e9eef5;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 3px 10px rgba(16,42,67,.04);
+    }
+
+    .table-items tr.folder-rows td {
+      padding: .5rem .9rem;
+      border: none;
+      display:flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .75rem;
+    }
+
+    .table-items tr.folder-rows td::before {
+      content: attr(data-label);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color:#8a94a6;
+      font-weight: 600;
+      flex: 0 0 auto;
+    }
+
+    /* first column (checkbox) + last column (actions) special */
+    .table-items tr.folder-rows td.select-col {
+      background:#f8fafc;
+      border-bottom:1px solid #eef2f7;
+      padding: .6rem .9rem;
+    }
+    .table-items tr.folder-rows td.select-col::before { content:"Select"; }
+
+    .table-items tr.folder-rows td.actions-col {
+      background:#f8fafc;
+      border-top:1px solid #eef2f7;
+      padding: .6rem .9rem;
+    }
+    .table-items tr.folder-rows td.actions-col::before { content:"Actions"; }
+
+    .table-items tr.folder-rows td.name-col {
+      align-items:flex-start;
+    }
+
+    .table-items tr.folder-rows td.name-col::before { content:"Item"; }
+    .table-items tr.folder-rows td.name-col .small { margin-top: .15rem; }
+
+    /* shrink some text */
+    .table-items tbody td { font-size: .95rem; }
+    .table-items code { font-size: .9rem; }
+  }
+
+  @media (max-width: 420px) {
+    .chip { font-size: .7rem; }
+    .table-items tr.folder-rows { margin: .5rem .4rem .7rem; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="mb-0">Items</h2>
-  {% if current_user.can_edit_items %}
-  <a href="{{ url_for('items.add_item') }}" class="btn btn-primary">
-    <i class="bi bi-plus-circle me-1"></i>New item
-  </a>
-  {% endif %}
+
+<!-- HERO HEADER -->
+<div class="items-hero rounded-4 p-4 mb-4 shadow-sm">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <h2 class="mb-1 fw-bold">
+        <i class="bi bi-box-seam me-2 text-primary"></i>Tracked items
+      </h2>
+      <div class="text-muted">
+        Your watchlist, grouped by folders. Bulk edit, reorganize, and check availability fast.
+      </div>
+      <div class="mt-2 d-flex flex-wrap gap-2">
+        <span class="chip">
+          <i class="bi bi-folder2-open"></i>
+          <span id="folders-count-display">{{ folders|length }}</span>
+          folder{{ '' if folders|length == 1 else 's' }}
+        </span>
+        <span class="chip">
+          <i class="bi bi-list-check"></i>
+          <span id="items-count-display">…</span>
+          item{{ '' if folders|length == 1 else 's' }}
+        </span>
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+      </a>
+      {% if current_user.can_edit_items %}
+      <a href="{{ url_for('items.add_item') }}" class="btn btn-primary btn-sm shadow-sm">
+        <i class="bi bi-plus-circle me-1"></i>New item
+      </a>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 {# extra column for selection checkboxes #}
 {% set total_cols = (12 if current_user.is_admin else 11) %}
 
-<div class="card shadow-sm">
+<div class="card shadow-sm rounded-4">
   <div class="card-body p-0">
+
+    <!-- BULK TOOLBAR -->
     <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="d-flex flex-wrap justify-content-between align-items-center px-3 pt-3 pb-2 gap-2">
-        <div id="bulk-actions" class="d-none">
+
+      <div class="bulk-toolbar sticky-header-wrapper px-3 py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div id="bulk-actions" class="d-flex flex-wrap gap-2 align-items-center d-none">
+          <span class="small me-1 text-light-emphasis">Bulk actions:</span>
           <button type="submit"
-                  class="btn btn-sm btn-outline-light bg-primary me-2 mb-1"
+                  class="btn btn-sm btn-outline-light bg-primary"
                   name="bulk_action"
                   value="activate">
-            Activate
+            <i class="bi bi-toggle-on me-1"></i>Activate
           </button>
           <button type="submit"
-                  class="btn btn-sm btn-outline-light bg-primary me-2 mb-1"
+                  class="btn btn-sm btn-outline-light bg-primary"
                   name="bulk_action"
                   value="deactivate">
-            Deactivate
+            <i class="bi bi-toggle-off me-1"></i>Deactivate
           </button>
           <button type="submit"
-                  class="btn btn-sm btn-outline-danger me-2 mb-1"
+                  class="btn btn-sm btn-outline-danger"
                   name="bulk_action"
                   value="delete">
-            Delete
+            <i class="bi bi-trash me-1"></i>Delete
           </button>
           <button type="submit"
-                  class="btn btn-sm btn-outline-light bg-primary mb-1"
+                  class="btn btn-sm btn-outline-light bg-primary"
                   name="bulk_action"
                   value="edit">
-            Bulk edit…
+            <i class="bi bi-pencil-square me-1"></i>Bulk edit…
           </button>
         </div>
-        <small class="text-muted d-none" id="bulk-selected-counter">0 items selected</small>
+
+        <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+          <small class="text-muted d-none" id="bulk-selected-counter">0 items selected</small>
+        </div>
       </div>
 
+      <!-- TABLE -->
       <div class="table-responsive">
-        <table class="table table-hover mb-0 align-middle">
+        <table class="table table-hover mb-0 align-middle table-items row-hover-soft">
           <thead class="table-light">
             <tr>
               <th style="width:1%;">
@@ -61,19 +238,16 @@
                    class="text-decoration-none text-reset">
                   {{ label }}
                   {% if is_active %}
-                    <i class="bi bi-caret-{% if sort_dir == 'asc' %}up{% else %}down{% endif %}-fill small"></i>
+                    <i class="bi bi-caret-{% if sort_dir == 'asc' %}up{% else %}down{% endif %}-fill small ms-1"></i>
                   {% endif %}
                 </a>
               {%- endmacro %}
-              <th>{{ sort_link('Added at', 'added_at') }}</th>
+              <th>{{ sort_link('Added', 'added_at') }}</th>
               <th>{{ sort_link('Name', 'name') }}</th>
               <th>{{ sort_link('Product ID', 'product_id') }}</th>
-              <th>{{ sort_link('Country', 'country_code') }}</th>
-              <th>{{ sort_link('Category', 'folder') }}</th>
               <th>{{ sort_link('Stores', 'stores') }}</th>
               <th>{{ sort_link('Active', 'active') }}</th>
               <th>{{ sort_link('Last stock', 'last_stock') }}</th>
-              <th>{{ sort_link('Last probability', 'last_probability') }}</th>
               <th>{{ sort_link('Last checked', 'last_checked') }}</th>
               {% if current_user.is_admin %}
               <th>{{ sort_link('Owner', 'owner') }}</th>
@@ -84,92 +258,122 @@
           <tbody>
           {% if folders %}
             {% for folder_name, folder_items in folders.items() %}
-              {# Stable key per folder, safe for HTML attr #}
               {% set folder_key = (folder_name|replace(' ', '_')|replace('/', '_')|replace('\\', '_')) %}
-              <tr class="table-secondary folder-header"
+
+              <!-- FOLDER HEADER ROW -->
+              <tr class="folder-header"
                   data-folder-group="folder-{{ folder_key }}"
                   data-folder-key="{{ folder_name }}"
                   style="cursor:pointer;">
-                <td style="width:1%;">
+                <td data-label="Select">
                   <input type="checkbox"
                          class="folder-select"
                          data-folder-group="folder-{{ folder_key }}">
                 </td>
                 <td colspan="{{ total_cols - 1 }}">
-                  <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                      <i class="bi bi-chevron-down me-1 folder-toggle-icon"></i>
-                      <strong>{{ folder_name }}</strong>
-                      <span class="ms-2 text-muted small">
-                        ({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <i class="bi bi-chevron-down folder-toggle-icon"></i>
+                      <span class="fw-semibold">{{ folder_name }}</span>
+                      <span class="badge bg-light text-muted border ms-1">
+                        {{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }}
+                      </span>
+                    </div>
+                    <div class="small text-muted d-none d-md-flex gap-3">
+                      <span>
+                        Active:
+                        {{ folder_items|selectattr('is_active')|list|length }}
+                      </span>
+                      <span>
+                        Notifs:
+                        {{ folder_items|selectattr('notify_enabled')|list|length }}
                       </span>
                     </div>
                   </div>
                 </td>
               </tr>
 
-              {# Items in this folder/category #}
+              <!-- FOLDER ITEMS -->
               {% for item in folder_items %}
               <tr class="folder-rows"
                   data-folder-group="folder-{{ folder_key }}"
                   data-folder-key="{{ folder_name }}">
-                <td>
+                <td class="select-col">
                   <input type="checkbox"
                          class="item-checkbox"
                          name="item_ids"
                          value="{{ item.id }}">
                 </td>
-                <td>
+
+                <td data-label="Added" class="text-nowrap">
                   {% if item.added_at %}
-                    {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
+                    {{ item.added_at.strftime('%Y-%m-%d') }}
+                    <span class="text-muted small ms-1">{{ item.added_at.strftime('%H:%M') }}</span>
                   {% else %}
                     -
                   {% endif %}
                 </td>
-                <td>
-                  <a href="{{ url_for('items.detail', item_id=item.id) }}">
-                    {{ item.name }}
+
+                <td class="name-col">
+                  <div>
+                    <a href="{{ url_for('items.detail', item_id=item.id) }}" class="item-name-link text-reset">
+                      {{ item.name }}
+                    </a>
+                  </div>
+                </td>
+
+                <td data-label="Product ID" class="text-nowrap">
+                  <a href="https://www.ikea.com/{{ item.country_code }}/en/p/{{ item.product_id }}/"
+                     target="_blank"
+                     class="text-decoration-none">
+                    <code>{{ item.product_id }}</code>
+                    <i class="bi bi-box-arrow-up-right ms-1 small text-muted"></i>
                   </a>
                 </td>
-                <td>
-                  <a href="https://www.ikea.com/hu/hu/p/{{ item.product_id }}/" target="_blank">
-                    {{ item.product_id }}
-                  </a>
+                <td data-label="Stores" class="small text-muted">
+                  {{ item.store_ids or "All" }}
                 </td>
-                <td>{{ item.country_code }}</td>
-                <td>{{ item.folder.name if item.folder else '-' }}</td>
-                <td>{{ item.store_ids or "All" }}</td>
-                <td>
+
+                <td data-label="Active">
                   {% if item.is_active %}
-                    <span class="badge bg-success">Active</span>
+                    <span class="badge-active">Active</span>
                   {% else %}
-                    <span class="badge bg-secondary">Inactive</span>
+                    <span class="badge-inactive">Inactive</span>
                   {% endif %}
                 </td>
-                <td>{{ item.last_stock if item.last_stock is not none else "-" }}</td>
-                <td>{{ item.last_probability or "-" }}</td>
-                <td>
+
+                <td data-label="Last stock" class="fw-semibold">
+                  {{ item.last_stock if item.last_stock is not none else "-" }}
+                </td>
+                <td data-label="Last checked" class="text-nowrap small text-muted">
                   {% if item.last_checked %}
                     {{ item.last_checked.strftime('%Y-%m-%d %H:%M') }}
                   {% else %}
-                    -
+                    Never
                   {% endif %}
                 </td>
+
                 {% if current_user.is_admin %}
-                <td>{{ item.user.username if item.user else '-' }}</td>
+                <td data-label="Owner" class="small text-muted">
+                  {{ item.user.username if item.user else '-' }}
+                </td>
                 {% endif %}
-                <td class="text-end">
+
+                <td class="actions-col text-end text-nowrap">
                   {% if current_user.can_edit_items %}
-                  <a class="btn btn-sm btn-outline-secondary"
-                     href="{{ url_for('items.edit_item', item_id=item.id) }}">
-                    Edit
+                  <a class="btn btn-sm btn-outline-secondary me-1"
+                     href="{{ url_for('items.edit_item', item_id=item.id) }}"
+                     title="Edit">
+                    <i class="bi bi-pencil"></i>
                   </a>
                   <form method="post"
                         action="{{ url_for('items.delete_item', item_id=item.id) }}"
                         class="d-inline"
                         onsubmit="return confirm('Delete this item?');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete">
+                      <i class="bi bi-trash"></i>
+                    </button>
                   </form>
                   {% endif %}
                 </td>
@@ -178,8 +382,8 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="{{ total_cols }}" class="text-center text-muted py-3">
-                No items yet.
+              <td colspan="{{ total_cols }}" class="text-center text-muted py-4">
+                No items yet. Start by adding your first tracked IKEA product.
               </td>
             </tr>
           {% endif %}
@@ -189,6 +393,11 @@
     </form>
   </div>
 </div>
+
+<!-- Floating scroll-to-top button -->
+<button class="btn btn-primary rounded-circle shadow floating-scroll-top" id="scroll-top-btn" type="button" aria-label="Scroll to top">
+  <i class="bi bi-arrow-up"></i>
+</button>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -225,14 +434,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // Save scroll position on navigations/reloads
   window.addEventListener("beforeunload", function () {
     state.scrollY = window.scrollY || window.pageYOffset || 0;
     saveState(state);
   });
 
   // -------------------------------
-  // Folder/category collapsible behaviour + persistence
+  // Folder collapsible behaviour + persistence
   // -------------------------------
   function setFolderCollapsed(folderKey, collapsed) {
     state.collapsedFolders[folderKey] = collapsed;
@@ -267,14 +475,12 @@ document.addEventListener("DOMContentLoaded", function () {
     applyFolderState(folderKey, collapsed);
   });
 
-  // Toggle on click + persist
+  // Toggle on header click (except checkbox)
   document.querySelectorAll(".folder-header").forEach(function (header) {
     header.addEventListener("click", function (evt) {
-      // Avoid toggling when clicking the folder checkbox
       if (evt.target.tagName === "INPUT" || evt.target.closest("input")) {
         return;
       }
-
       const folderKey = header.dataset.folderKey;
       const rows = document.querySelectorAll(
         ".folder-rows[data-folder-key='" + folderKey.replace(/'/g, "\\'") + "']"
@@ -285,20 +491,21 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!row.classList.contains("d-none")) anyVisible = true;
       });
 
-      const newCollapsed = anyVisible; // if any visible -> collapse
+      const newCollapsed = anyVisible;
       applyFolderState(folderKey, newCollapsed);
       setFolderCollapsed(folderKey, newCollapsed);
     });
   });
 
   // -------------------------------
-  // Bulk selection logic (unchanged)
+  // Bulk selection & counters
   // -------------------------------
   const selectAll = document.getElementById("select-all");
   const bulkForm = document.getElementById("bulk-form");
   const counter = document.getElementById("bulk-selected-counter");
   const bulkActions = document.getElementById("bulk-actions");
   const itemCheckboxes = Array.from(document.querySelectorAll(".item-checkbox"));
+  const toolbar = document.querySelector(".bulk-toolbar");
   let lastItemCheckbox = null;
 
   function updateCounter() {
@@ -315,16 +522,18 @@ document.addEventListener("DOMContentLoaded", function () {
     if (bulkActions) {
       bulkActions.classList.toggle("d-none", count === 0);
     }
+
+    if (toolbar) {
+      toolbar.classList.toggle("bulk-toolbar-active", count > 0);
+    }
   }
 
-  // Global select-all
   if (selectAll) {
     selectAll.addEventListener("change", function () {
       const checked = selectAll.checked;
       document.querySelectorAll(".item-checkbox").forEach(function (cb) {
         cb.checked = checked;
       });
-      // Also sync folder-level checkboxes
       document.querySelectorAll(".folder-select").forEach(function (fcb) {
         fcb.checked = checked;
       });
@@ -332,7 +541,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // Shift+click range selection for item checkboxes
   function handleItemCheckboxClick(e) {
     const cb = e.target;
     if (e.shiftKey && lastItemCheckbox && lastItemCheckbox !== cb) {
@@ -355,7 +563,6 @@ document.addEventListener("DOMContentLoaded", function () {
     cb.addEventListener("click", handleItemCheckboxClick);
   });
 
-  // Category-level select all / deselect all
   document.querySelectorAll(".folder-select").forEach(function (fcb) {
     fcb.addEventListener("change", function (evt) {
       const checked = fcb.checked;
@@ -365,16 +572,13 @@ document.addEventListener("DOMContentLoaded", function () {
       );
       rows.forEach(function (row) {
         const cb = row.querySelector(".item-checkbox");
-        if (cb) {
-          cb.checked = checked;
-        }
+        if (cb) cb.checked = checked;
       });
       updateCounter();
       evt.stopPropagation();
     });
   });
 
-  // Bulk form submit: require at least one item, confirm on delete
   if (bulkForm) {
     bulkForm.addEventListener("submit", function (e) {
       const selected = document.querySelectorAll(".item-checkbox:checked").length;
@@ -383,10 +587,8 @@ document.addEventListener("DOMContentLoaded", function () {
         alert("Please select at least one item.");
         return;
       }
-
       const submitter = e.submitter || null;
       const action = submitter ? submitter.value : "";
-
       if (action === "delete") {
         if (!confirm("Delete the selected items?")) {
           e.preventDefault();
@@ -396,8 +598,34 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // Initial state
   updateCounter();
+
+  // -------------------------------
+  // Item count display
+  // -------------------------------
+  const itemsCountDisplay = document.getElementById("items-count-display");
+  if (itemsCountDisplay) {
+    const count = document.querySelectorAll(".item-checkbox").length;
+    itemsCountDisplay.textContent = count;
+  }
+
+  // -------------------------------
+  // Floating scroll-to-top button
+  // -------------------------------
+  const scrollTopBtn = document.getElementById("scroll-top-btn");
+  function onScroll() {
+    const y = window.scrollY || window.pageYOffset || 0;
+    if (scrollTopBtn) {
+      scrollTopBtn.style.display = y > 200 ? "inline-flex" : "none";
+    }
+  }
+  if (scrollTopBtn) {
+    scrollTopBtn.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+  window.addEventListener("scroll", onScroll);
+  onScroll();
 });
 </script>
 
