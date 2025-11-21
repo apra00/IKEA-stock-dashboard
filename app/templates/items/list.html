@@ -84,14 +84,16 @@
           <tbody>
           {% if folders %}
             {% for folder_name, folder_items in folders.items() %}
-              {% set folder_idx = loop.index %}
+              {# Stable key per folder, safe for HTML attr #}
+              {% set folder_key = (folder_name|replace(' ', '_')|replace('/', '_')|replace('\\', '_')) %}
               <tr class="table-secondary folder-header"
-                  data-folder-group="folder-{{ folder_idx }}"
+                  data-folder-group="folder-{{ folder_key }}"
+                  data-folder-key="{{ folder_name }}"
                   style="cursor:pointer;">
                 <td style="width:1%;">
                   <input type="checkbox"
                          class="folder-select"
-                         data-folder-group="folder-{{ folder_idx }}">
+                         data-folder-group="folder-{{ folder_key }}">
                 </td>
                 <td colspan="{{ total_cols - 1 }}">
                   <div class="d-flex justify-content-between align-items-center">
@@ -109,7 +111,8 @@
               {# Items in this folder/category #}
               {% for item in folder_items %}
               <tr class="folder-rows"
-                  data-folder-group="folder-{{ folder_idx }}">
+                  data-folder-group="folder-{{ folder_key }}"
+                  data-folder-key="{{ folder_name }}">
                 <td>
                   <input type="checkbox"
                          class="item-checkbox"
@@ -189,41 +192,108 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  // Folder/category collapsible behaviour
+  // -------------------------------
+  // Persistence keys (per user)
+  // -------------------------------
+  const USER_KEY = "{{ current_user.username }}";
+  const STATE_KEY = "itemsPageState::" + USER_KEY;
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(STATE_KEY) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  const state = loadState();
+  if (!state.collapsedFolders) state.collapsedFolders = {};
+  if (typeof state.scrollY !== "number") state.scrollY = 0;
+
+  // -------------------------------
+  // Restore scroll position
+  // -------------------------------
+  requestAnimationFrame(() => {
+    if (state.scrollY && state.scrollY > 0) {
+      window.scrollTo(0, state.scrollY);
+    }
+  });
+
+  // Save scroll position on navigations/reloads
+  window.addEventListener("beforeunload", function () {
+    state.scrollY = window.scrollY || window.pageYOffset || 0;
+    saveState(state);
+  });
+
+  // -------------------------------
+  // Folder/category collapsible behaviour + persistence
+  // -------------------------------
+  function setFolderCollapsed(folderKey, collapsed) {
+    state.collapsedFolders[folderKey] = collapsed;
+    saveState(state);
+  }
+
+  function applyFolderState(folderKey, collapsed) {
+    const groupHeaders = document.querySelectorAll(
+      ".folder-header[data-folder-key='" + folderKey.replace(/'/g, "\\'") + "']"
+    );
+    const groupRows = document.querySelectorAll(
+      ".folder-rows[data-folder-key='" + folderKey.replace(/'/g, "\\'") + "']"
+    );
+
+    groupRows.forEach(function (row) {
+      row.classList.toggle("d-none", collapsed);
+    });
+
+    groupHeaders.forEach(function (header) {
+      const icon = header.querySelector(".folder-toggle-icon");
+      if (icon) {
+        icon.classList.toggle("bi-chevron-down", !collapsed);
+        icon.classList.toggle("bi-chevron-right", collapsed);
+      }
+    });
+  }
+
+  // Initial restore of collapsed folders
+  document.querySelectorAll(".folder-header").forEach(function (header) {
+    const folderKey = header.dataset.folderKey;
+    const collapsed = !!state.collapsedFolders[folderKey];
+    applyFolderState(folderKey, collapsed);
+  });
+
+  // Toggle on click + persist
   document.querySelectorAll(".folder-header").forEach(function (header) {
     header.addEventListener("click", function (evt) {
       // Avoid toggling when clicking the folder checkbox
       if (evt.target.tagName === "INPUT" || evt.target.closest("input")) {
         return;
       }
-      const group = header.dataset.folderGroup;
+
+      const folderKey = header.dataset.folderKey;
       const rows = document.querySelectorAll(
-        ".folder-rows[data-folder-group='" + group + "']"
+        ".folder-rows[data-folder-key='" + folderKey.replace(/'/g, "\\'") + "']"
       );
 
       let anyVisible = false;
       rows.forEach(function (row) {
-        if (!row.classList.contains("d-none")) {
-          anyVisible = true;
-        }
+        if (!row.classList.contains("d-none")) anyVisible = true;
       });
 
-      rows.forEach(function (row) {
-        if (anyVisible) {
-          row.classList.add("d-none");
-        } else {
-          row.classList.remove("d-none");
-        }
-      });
-
-      const icon = header.querySelector(".folder-toggle-icon");
-      if (icon) {
-        icon.classList.toggle("bi-chevron-down", !anyVisible);
-        icon.classList.toggle("bi-chevron-right", anyVisible);
-      }
+      const newCollapsed = anyVisible; // if any visible -> collapse
+      applyFolderState(folderKey, newCollapsed);
+      setFolderCollapsed(folderKey, newCollapsed);
     });
   });
 
+  // -------------------------------
+  // Bulk selection logic (unchanged)
+  // -------------------------------
   const selectAll = document.getElementById("select-all");
   const bulkForm = document.getElementById("bulk-form");
   const counter = document.getElementById("bulk-selected-counter");
