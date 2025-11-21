@@ -165,7 +165,7 @@
                         action="{{ url_for('items.delete_item', item_id=item.id) }}"
                         class="d-inline"
                         onsubmit="return confirm('Delete this item?');">
-                        {{ csrf_token() }}
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
                   </form>
                   {% endif %}

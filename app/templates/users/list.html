@@ -32,6 +32,7 @@
             <form method="post" class="d-inline"
                   action="{{ url_for('users.delete_user', user_id=user.id) }}"
                   onsubmit="return confirm('Delete this user?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
             </form>
             {% endif %}
