@@ -1,5 +1,5 @@
 # 🚀 IKEA Stock Dashboard
-
+<img width="163" height="41" alt="image" src="https://github.com/user-attachments/assets/3ef14c74-8933-419b-ab8e-1f4c2d591fdd" />
 A modern, self-hosted dashboard for monitoring IKEA product availability in real time.  
 Track items, receive alerts, view historical data, and integrate automated checks — all in a secure, multi-user environment.
 
