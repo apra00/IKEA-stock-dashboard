@@ -1,4 +1,4 @@
-# 🚀 IKEA Stock Dashboard
+# 🚀 IKEA Checker - The IKEA Stock Dashboard
 <img width="163" height="41" alt="image" src="https://github.com/user-attachments/assets/3ef14c74-8933-419b-ab8e-1f4c2d591fdd" />
 
 A modern, self-hosted dashboard for monitoring IKEA product availability in real time.  
@@ -16,6 +16,8 @@ Track items, receive alerts, view historical data, and integrate automated check
 - 🔐 **Secure webhook** for automated background checks  
 - 🧩 **Node.js integration** for live IKEA API data
 
+---
+<img width="963" height="1157" alt="image" src="https://github.com/user-attachments/assets/65d2b5a6-1f79-4f05-b157-91f770ac4c59" />
 ---
 
 ## 📦 Requirements
