@@ -347,7 +347,6 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  // Health chart
   const ctx = document.getElementById("healthChart");
   if (ctx) {
     new Chart(ctx, {
@@ -370,9 +369,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // -------------------------------------------------------
-  // Async "Run availability check" with persistence + poll
-  // -------------------------------------------------------
   const form = document.getElementById("check-all-form");
   const btn = document.getElementById("check-all-btn");
   const hero = document.querySelector(".dash-hero");
@@ -401,13 +397,11 @@ document.addEventListener("DOMContentLoaded", function () {
         setLoading(false);
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = null;
-        // refresh to reflect new data
         window.location.reload();
       } else {
         setLoading(true);
       }
     } catch (e) {
-      // If status check fails, keep spinner if we believe it's running.
       setLoading(true);
     }
   }
@@ -418,18 +412,15 @@ document.addEventListener("DOMContentLoaded", function () {
     pollStatus();
   }
 
-  // Restore spinner after reload if check still running
   const lsRunningStamp = localStorage.getItem(LS_KEY);
   if (lsRunningStamp || serverSaysRunning) {
     setLoading(true);
     startPolling();
   }
 
-  // Submit handler
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
 
-    // Persist running state immediately
     localStorage.setItem(LS_KEY, String(Date.now()));
     setLoading(true);
     startPolling();
@@ -442,17 +433,15 @@ document.addEventListener("DOMContentLoaded", function () {
         headers: { "X-Requested-With": "XMLHttpRequest" }
       });
 
-      if (!res.ok) throw new Error("Request failed");
-
-      // We do NOT clear LS here yet — polling will clear it
-      // once the server reports running=false.
-      pollStatus();
+      // Even if this fails, background might already be running.
+      // So we do NOT alert here; polling decides.
+      if (res.ok) {
+        pollStatus();
+      }
     } catch (err) {
-      console.error(err);
-      localStorage.removeItem(LS_KEY);
-      setLoading(false);
-      if (pollTimer) clearInterval(pollTimer);
-      alert("Availability check failed. Please try again.");
+      // Do nothing loud. Keep spinner + polling.
+      console.warn("Check-all request error, continuing to poll.", err);
+      startPolling();
     }
   });
 });
