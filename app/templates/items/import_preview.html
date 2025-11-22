@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Import wizard – IKEA Availability{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h2 class="mb-0 fw-bold">
+      <i class="bi bi-magic me-2 text-primary"></i>Import wizard
+    </h2>
+    <div class="text-muted small">
+      File: <strong>{{ filename }}</strong> · {{ preview_rows|length }} preview rows
+    </div>
+  </div>
+  <a href="{{ url_for('items.import_export_page') }}" class="btn btn-outline-secondary btn-sm">
+    Cancel
+  </a>
+</div>
+
+<div class="card shadow-sm rounded-4">
+  <div class="card-header bg-white border-0 pt-3 px-3">
+    <strong>Step 1 — Map columns</strong>
+    <div class="small text-muted">Pick which file column corresponds to each item field.</div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('items.import_commit') }}" id="import-commit-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="rows_json" value="{{ rows_json|e }}">
+      <input type="hidden" name="mapping_json" id="mapping_json">
+
+      <div class="row g-3">
+        {% set fields = [
+          ("name","Name (required)"),
+          ("product_id","Product ID (required)"),
+          ("country_code","Country code (required)"),
+          ("store_ids","Store IDs (optional)"),
+          ("folder_name","Folder name per-row (optional)"),
+          ("is_active","Active (optional)"),
+          ("notify_enabled","Notify enabled (optional)"),
+          ("notify_threshold","Notify threshold (optional)")
+        ] %}
+
+        {% for field_key, field_label in fields %}
+        <div class="col-md-6">
+          <label class="form-label">{{ field_label }}</label>
+          <select class="form-select mapping-select" data-field="{{ field_key }}">
+            <option value="__ignore__">Ignore</option>
+            {% for c in columns %}
+              <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
+      <hr class="my-4">
+
+      <strong>Step 2 — Target folder</strong>
+      <div class="small text-muted mb-2">Apply one folder to all imported items (optional).</div>
+
+      <div class="row g-2 align-items-center">
+        <div class="col-md-6">
+          <select class="form-select" name="folder_choice" id="folder-choice">
+            <option value="__none__">(No folder)</option>
+            {% for cat in categories %}
+              <option value="{{ cat.name }}">{{ cat.name }}</option>
+            {% endfor %}
+            <option value="__new__">+ Create new folder…</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <input class="form-control d-none" type="text" name="new_folder_name"
+                 id="new-folder-name" placeholder="New folder name">
+        </div>
+      </div>
+
+      <hr class="my-4">
+
+      <strong>Preview</strong>
+      <div class="small text-muted mb-2">First 20 rows from your file.</div>
+
+      <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped align-middle">
+          <thead class="table-light">
+            <tr>
+              {% for c in columns %}
+                <th class="text-nowrap">{{ c }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in preview_rows %}
+              <tr>
+                {% for c in columns %}
+                  <td class="text-nowrap">{{ r[c] }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <button class="btn btn-primary" type="submit">
+        <i class="bi bi-upload me-1"></i>Import items
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.getElementById("import-commit-form");
+  const selects = Array.from(document.querySelectorAll(".mapping-select"));
+  const mappingHidden = document.getElementById("mapping_json");
+
+  function buildMapping() {
+    const m = {};
+    selects.forEach(sel => {
+      m[sel.dataset.field] = sel.value;
+    });
+    mappingHidden.value = JSON.stringify(m);
+  }
+
+  selects.forEach(sel => sel.addEventListener("change", buildMapping));
+  buildMapping();
+
+  const folderChoice = document.getElementById("folder-choice");
+  const newFolder = document.getElementById("new-folder-name");
+
+  folderChoice.addEventListener("change", () => {
+    if (folderChoice.value === "__new__") {
+      newFolder.classList.remove("d-none");
+      newFolder.focus();
+    } else {
+      newFolder.classList.add("d-none");
+      newFolder.value = "";
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import json
+import io
 
 from flask import (
     Blueprint,
@@ -9,8 +10,11 @@ from flask import (
     url_for,
     flash,
     session,
+    send_file,
 )
 from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
+
 from ..extensions import db
 from ..models import Item, AvailabilitySnapshot, Folder
 from ..ikea_service import (
@@ -19,6 +23,12 @@ from ..ikea_service import (
     get_stores_for_country,
     get_live_availability_for_item,
 )
+
+# Optional deps for import/export
+try:
+    import pandas as pd  # type: ignore
+except Exception:  # pragma: no cover
+    pd = None
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
@@ -507,7 +517,7 @@ def detail(item_id):
     ]
 
     # -----------------------------
-    # NEW: per-store datasets when multiple stores tracked
+    # per-store datasets when multiple stores tracked
     # -----------------------------
     tracked_store_ids = (
         [s.strip() for s in (item.store_ids or "").split(",") if s.strip()]
@@ -585,4 +595,291 @@ def list_stores():
         country=country,
         stores=stores,
         error=error,
+    )
+
+
+# ============================================================
+# IMPORT / EXPORT
+# ============================================================
+
+def _ensure_pandas():
+    if pd is None:
+        raise RuntimeError(
+            "pandas is not installed. Add pandas and openpyxl to requirments.txt."
+        )
+
+
+def _read_import_file(file_storage):
+    """
+    Returns (rows, columns, error).
+    rows: list[dict]
+    columns: list[str]
+    """
+    _ensure_pandas()
+
+    filename = secure_filename(file_storage.filename or "")
+    if not filename:
+        return [], [], "No file selected."
+
+    ext = filename.rsplit(".", 1)[-1].lower()
+    try:
+        if ext in ("csv", "txt"):
+            df = pd.read_csv(file_storage)
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(file_storage)
+        else:
+            return [], [], "Unsupported file type. Use CSV or Excel."
+    except Exception as e:
+        return [], [], f"Failed to parse file: {e}"
+
+    # Normalize columns to string
+    df.columns = [str(c).strip() for c in df.columns]
+    columns = list(df.columns)
+
+    # Limit import size for safety
+    if len(df) > 5000:
+        df = df.head(5000)
+
+    # Replace NaN with None
+    rows = df.where(pd.notnull(df), None).to_dict(orient="records")
+    return rows, columns, None
+
+
+@items_bp.route("/import-export", methods=["GET"])
+@login_required
+def import_export_page():
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    categories = (
+        Folder.query.filter_by(user_id=current_user.id)
+        .order_by(Folder.name.asc())
+        .all()
+    )
+
+    return render_template("items/import_export.html", categories=categories)
+
+
+@items_bp.route("/import/preview", methods=["POST"])
+@login_required
+def import_preview():
+    if not _require_edit_permission():
+        return redirect(url_for("items.import_export_page"))
+
+    file_storage = request.files.get("import_file")
+    if not file_storage:
+        flash("Please choose a file.", "danger")
+        return redirect(url_for("items.import_export_page"))
+
+    rows, columns, error = _read_import_file(file_storage)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("items.import_export_page"))
+
+    categories = (
+        Folder.query.filter_by(user_id=current_user.id)
+        .order_by(Folder.name.asc())
+        .all()
+    )
+
+    # Give a small preview in UI, keep all rows in hidden json
+    preview_rows = rows[:20]
+
+    return render_template(
+        "items/import_preview.html",
+        columns=columns,
+        rows_json=json.dumps(rows),
+        preview_rows=preview_rows,
+        categories=categories,
+        filename=file_storage.filename,
+    )
+
+
+@items_bp.route("/import/commit", methods=["POST"])
+@login_required
+def import_commit():
+    if not _require_edit_permission():
+        return redirect(url_for("items.import_export_page"))
+
+    rows_json = request.form.get("rows_json", "")
+    mapping_json = request.form.get("mapping_json", "")
+
+    try:
+        rows = json.loads(rows_json) if rows_json else []
+        mapping = json.loads(mapping_json) if mapping_json else {}
+    except Exception:
+        flash("Invalid import payload.", "danger")
+        return redirect(url_for("items.import_export_page"))
+
+    if not rows:
+        flash("No rows to import.", "warning")
+        return redirect(url_for("items.import_export_page"))
+
+    # folder choice
+    folder_choice = request.form.get("folder_choice", "__none__")
+    new_folder_name = request.form.get("new_folder_name", "").strip()
+    folder_name = None
+    if folder_choice == "__new__":
+        folder_name = new_folder_name or None
+    elif folder_choice == "__none__":
+        folder_name = None
+    else:
+        folder_name = folder_choice
+
+    folder_obj = None
+    if folder_name:
+        folder_obj = _get_or_create_folder_for_user(current_user.id, folder_name)
+
+    created = 0
+    skipped = 0
+    errors = 0
+
+    # Helper to fetch a value from row based on mapping
+    def val(row, field):
+        col = mapping.get(field)
+        if not col or col == "__ignore__":
+            return None
+        return row.get(col)
+
+    for row in rows:
+        try:
+            name = (val(row, "name") or "").strip()
+            product_id = (val(row, "product_id") or "").strip()
+            country_code = (val(row, "country_code") or "").strip().lower()
+            store_ids = (val(row, "store_ids") or None)
+
+            if not name or not product_id or not country_code:
+                skipped += 1
+                continue
+
+            item = Item(
+                name=name,
+                product_id=str(product_id).replace(".", ""),
+                country_code=country_code,
+                store_ids=str(store_ids).strip() if store_ids else None,
+                user_id=current_user.id,
+                is_active=True,
+            )
+
+            # optional fields
+            is_active_raw = val(row, "is_active")
+            if is_active_raw is not None:
+                s = str(is_active_raw).strip().lower()
+                item.is_active = s in ("1", "true", "yes", "y", "on")
+
+            notify_enabled_raw = val(row, "notify_enabled")
+            if notify_enabled_raw is not None:
+                s = str(notify_enabled_raw).strip().lower()
+                item.notify_enabled = s in ("1", "true", "yes", "y", "on")
+
+            notify_th_raw = val(row, "notify_threshold")
+            if notify_th_raw is not None and str(notify_th_raw).strip() != "":
+                try:
+                    item.notify_threshold = int(float(notify_th_raw))
+                except Exception:
+                    item.notify_threshold = None
+
+            if folder_obj:
+                item.folder = folder_obj
+            else:
+                # if they mapped folder_name as column, allow per-row folders
+                row_folder = val(row, "folder_name")
+                if row_folder:
+                    fobj = _get_or_create_folder_for_user(
+                        current_user.id, str(row_folder).strip()
+                    )
+                    item.folder = fobj
+
+            db.session.add(item)
+            created += 1
+        except Exception:
+            errors += 1
+
+    db.session.commit()
+
+    flash(
+        f"Import finished. Created {created}, skipped {skipped}, errors {errors}.",
+        "success" if created else "warning",
+    )
+    return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/export", methods=["POST"])
+@login_required
+def export_items():
+    """
+    Export selected items in CSV / Excel / JSON.
+    """
+    item_ids = request.form.getlist("item_ids")
+    fmt = (request.form.get("format") or "csv").lower()
+
+    if not item_ids:
+        flash("No items selected for export.", "warning")
+        return redirect(url_for("items.list_items"))
+
+    query = Item.query.filter(Item.id.in_(item_ids))
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+
+    items = query.all()
+    if not items:
+        flash("You are not allowed to export these items.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    data = []
+    for it in items:
+        data.append(
+            {
+                "id": it.id,
+                "name": it.name,
+                "product_id": it.product_id,
+                "country_code": it.country_code,
+                "store_ids": it.store_ids or "",
+                "is_active": bool(it.is_active),
+                "notify_enabled": bool(it.notify_enabled),
+                "notify_threshold": it.notify_threshold if it.notify_threshold is not None else "",
+                "folder_name": it.folder.name if it.folder else "",
+                "added_at": it.added_at.isoformat() if it.added_at else "",
+                "last_stock": it.last_stock if it.last_stock is not None else "",
+                "last_probability": it.last_probability or "",
+                "last_checked": it.last_checked.isoformat() if it.last_checked else "",
+            }
+        )
+
+    filename_base = f"ikea-items-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+    if fmt == "json":
+        buf = io.BytesIO(json.dumps(data, indent=2).encode("utf-8"))
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"{filename_base}.json",
+        )
+
+    _ensure_pandas()
+    df = pd.DataFrame(data)
+
+    if fmt == "xlsx":
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Items")
+        out.seek(0)
+        return send_file(
+            out,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"{filename_base}.xlsx",
+        )
+
+    # default CSV
+    out = io.StringIO()
+    df.to_csv(out, index=False)
+    buf = io.BytesIO(out.getvalue().encode("utf-8"))
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"{filename_base}.csv",
     )
