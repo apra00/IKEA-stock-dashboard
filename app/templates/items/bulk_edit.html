@@ -12,8 +12,10 @@
           Unique fields (name, product ID, country, stores) are shown as read-only.
         </p>
 
-        <form method="post">
+        <!-- IMPORTANT: submit to bulk_edit_submit -->
+        <form method="post" action="{{ url_for('items.bulk_edit_submit') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
           {# keep all item ids in the form #}
           {% for it in items %}
             <input type="hidden" name="item_ids" value="{{ it.id }}">
