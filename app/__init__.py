@@ -1,4 +1,6 @@
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 from .extensions import db, login_manager, csrf, limiter
 from .models import User
 from .models import create_default_admin
@@ -16,9 +18,21 @@ migrate = Migrate()
 def create_app(config_name: str = "default") -> Flask:
     app = Flask(__name__)
 
-    # Load config class and validate critical security settings
+    # Load config class
     cfg_cls = config[config_name]
     app.config.from_object(cfg_cls)
+
+    # --- IMPORTANT FOR APACHE/REVERSE PROXY ---
+    # Trust proxy headers (X-Forwarded-For, Proto, Host, Port, Prefix)
+    # so Flask sees real client IP + https scheme.
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_port=1,
+        x_prefix=1,
+    )
 
     # Init extensions
     limiter.init_app(app)
