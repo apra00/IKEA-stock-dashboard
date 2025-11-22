@@ -283,6 +283,16 @@
                         ({{ folder_items|length }} item{{ '' if folder_items|length == 1 else 's' }})
                       </span>
                     </div>
+                    <div class="small text-muted d-none d-md-flex gap-3">
+                      <span>
+                        Active:
+                        {{ folder_items|selectattr('is_active')|list|length }}
+                      </span>
+                      <span>
+                        Notifs:
+                        {{ folder_items|selectattr('notify_enabled')|list|length }}
+                      </span>
+                    </div>
                   </div>
                 </td>
               </tr>
