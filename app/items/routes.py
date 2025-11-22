@@ -39,18 +39,24 @@ def _require_edit_permission():
         return False
     return True
 
-
 def _get_or_create_folder_for_user(user_id: int, name: str | None):
     if not name:
-        return None
+        if current_user.is_admin:
+            all_folders = Folder.query.order_by(Folder.name.asc()).all()
+            # Deduplicate by name (folders are per-user)
+            seen = set()
+            uniq = []
+            for f in all_folders:
+                if f.name not in seen:
+                    uniq.append(f)
+                    seen.add(f.name)
+            if len(uniq) > 0:
+                return uniq
+        else:
+            folder = Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
+            if folder:
+                return folder
     clean_name = name.strip()
-    if not clean_name:
-        return None
-
-    folder = Folder.query.filter_by(user_id=user_id, name=clean_name).first()
-    if folder:
-        return folder
-
     folder = Folder(user_id=user_id, name=clean_name)
     db.session.add(folder)
     db.session.flush()
@@ -750,9 +756,8 @@ def import_export_page():
     if not _require_edit_permission():
         return redirect(url_for("items.list_items"))
 
-    categories = (
-        Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
-    )
+    categories = _get_or_create_folder_for_user(current_user.id, None)
+
     return render_template("items/import_export.html", categories=categories)
 
 
@@ -782,9 +787,8 @@ def import_preview():
     session["import_rows"] = rows[:2000]
     session["import_cols"] = cols
 
-    categories = (
-        Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
-    )
+    categories = _get_or_create_folder_for_user(current_user.id, None)
+
 
     preview_rows = rows[:20]
 
@@ -817,9 +821,21 @@ def import_submit():
     map_notify_enabled = request.form.get("map_notify_enabled") or ""
     map_notify_threshold = request.form.get("map_notify_threshold") or ""
 
-    if not map_name or not map_product_id or not map_country:
-        flash("You must map Name, Product ID and Country Code columns.", "danger")
+    # Manual defaults (used when mapping not provided)
+    manual_country = (request.form.get("manual_country_code") or "").strip().upper()
+    manual_store_ids = (request.form.get("manual_store_ids") or "").strip()
+    manual_notify_enabled = request.form.get("manual_notify_enabled") == "on"
+    manual_notify_threshold = _cast_int(request.form.get("manual_notify_threshold"))
+
+    # Require Name + Product mapping. Country required overall.
+    if not map_name or not map_product_id:
+        flash("You must map Name and Product ID columns.", "danger")
         return redirect(url_for("items.import_preview"))
+
+    if not map_country and not manual_country:
+        flash("Country is required: map a Country Code column or set a default country code.", "danger")
+        return redirect(url_for("items.import_preview"))
+
 
     folder_mode = request.form.get("folder_mode", "none")
     folder_name = ""
@@ -838,18 +854,41 @@ def import_submit():
     for r in rows:
         try:
             name = str(r.get(map_name, "")).strip()
-            # IMPORTANT: keep product_id as string exactly as in file
             product_id = str(r.get(map_product_id, "")).strip()
-            country_code = str(r.get(map_country, "")).strip().upper()
+
+            # Country from mapped column OR manual default
+            country_code = (
+                str(r.get(map_country, "")).strip().upper()
+                if map_country
+                else manual_country
+            )
 
             if not name or not product_id or not country_code:
                 skipped += 1
                 continue
 
-            store_ids = str(r.get(map_stores, "")).strip() if map_stores else ""
+            # Stores from mapped column OR manual default
+            store_ids = (
+                str(r.get(map_stores, "")).strip()
+                if map_stores
+                else manual_store_ids
+            )
+
             is_active = _cast_bool(r.get(map_active)) if map_active else True
-            notify_enabled = _cast_bool(r.get(map_notify_enabled)) if map_notify_enabled else False
-            notify_threshold = _cast_int(r.get(map_notify_threshold)) if map_notify_threshold else None
+
+            # Notify enabled / threshold from mapped column OR manual default
+            notify_enabled = (
+                _cast_bool(r.get(map_notify_enabled))
+                if map_notify_enabled
+                else manual_notify_enabled
+            )
+
+            notify_threshold = (
+                _cast_int(r.get(map_notify_threshold))
+                if map_notify_threshold
+                else manual_notify_threshold
+            )
+
 
             item = Item(
                 user_id=current_user.id,
