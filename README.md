@@ -77,6 +77,63 @@ SMTP_FROM=alerts@example.com
 
 ---
 
+## 📧 Gmail SMTP Setup (With & Without 2-Step Verification)
+
+### 🔐 Option 1 — Gmail WITHOUT 2-Step Verification (Not recommended)
+Google is shutting this down, but if your account still allows “Less Secure Apps”, you can use it.
+
+1. Open: https://myaccount.google.com/lesssecureapps
+2. Enable **Allow less secure apps**
+3. Add this to your `.env`:
+```
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=True
+SMTP_USERNAME=your@gmail.com
+SMTP_FROM=your@gmail.com
+SMTP_PASSWORD=your-gmail-password
+```
+⚠️ Google may block this at any time. Prefer Option 2 below.
+
+---
+
+### 🔑 Option 2 — Gmail WITH 2-Step Verification (Recommended)
+When 2-Step Verification is ON, Gmail will **reject your normal password**.  
+You must generate an **App Password**.
+
+1. Open: https://myaccount.google.com/security
+2. Enable **2-Step Verification**
+3. After enabling it, a new option appears: **App Passwords**
+4. Create an App Password:
+   - Choose **Mail**
+   - Choose **Other**, name it `IKEA Dashboard`
+   - Copy the 16-character generated password
+
+5. Add to your `.env`:
+
+```
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=True
+SMTP_USERNAME=your@gmail.com
+SMTP_FROM=your@gmail.com
+SMTP_PASSWORD=your-app-password
+```
+---
+
+### ✔️ Testing Email Setup
+After configuring:
+
+- Restart the app
+- Trigger a test notification
+
+If Gmail blocks the login, go to:
+
+- https://myaccount.google.com/security → **Recent security events**
+- Approve the attempted login
+
+---
+
 ## 🗄️ Database Setup
 
 ```bash
