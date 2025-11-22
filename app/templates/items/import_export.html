@@ -1,45 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Import / Export – IKEA Availability{% endblock %}
-
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
-    <h2 class="mb-0 fw-bold">
-      <i class="bi bi-arrow-left-right me-2 text-primary"></i>Import / Export
-    </h2>
-    <div class="text-muted small">Bring items in or take them out in seconds.</div>
+    <h2 class="mb-1">Import / Export</h2>
+    <div class="text-muted small">Bring items in from CSV/Excel and export selections anytime.</div>
   </div>
   <a href="{{ url_for('items.list_items') }}" class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-list-ul me-1"></i>Back to items
+    <i class="bi bi-arrow-left me-1"></i>Back to items
   </a>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-6">
-    <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3">
-        <strong>Import items</strong>
-        <div class="small text-muted">CSV or Excel (XLSX)</div>
-      </div>
+    <div class="card shadow-sm rounded-4">
       <div class="card-body">
+        <h5 class="fw-semibold mb-2"><i class="bi bi-upload me-2"></i>Import items</h5>
+        <p class="text-muted small mb-3">
+          Supported formats: <strong>.csv</strong>, <strong>.xlsx</strong>.
+          You will map columns in the next step.
+        </p>
+
         <form method="post" action="{{ url_for('items.import_preview') }}" enctype="multipart/form-data">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
           <div class="mb-3">
-            <label class="form-label">Choose a file</label>
-            <input type="file" name="import_file" class="form-control" required>
-            <div class="form-text">
-              Supported: .csv, .xlsx. First row must contain column names.
-            </div>
+            <label class="form-label">Choose file</label>
+            <input type="file" name="file" class="form-control" accept=".csv,.xlsx,.xls" required>
           </div>
 
-          <div class="alert alert-info small mb-3">
-            You’ll map your file columns to fields in the next step.
-            Required fields are <strong>Name</strong>, <strong>Product ID</strong>, and <strong>Country code</strong>.
+          <!-- NEW: header toggle -->
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="has_header" name="has_header" checked>
+            <label class="form-check-label" for="has_header">
+              File has header row (column names on first row)
+            </label>
           </div>
 
           <button class="btn btn-primary" type="submit">
-            <i class="bi bi-magic me-1"></i>Start import wizard
+            <i class="bi bi-arrow-right-circle me-1"></i>Next: map columns
           </button>
         </form>
       </div>
@@ -47,22 +47,20 @@
   </div>
 
   <div class="col-lg-6">
-    <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3">
-        <strong>Export items</strong>
-        <div class="small text-muted">CSV, Excel, or JSON</div>
-      </div>
+    <div class="card shadow-sm rounded-4">
       <div class="card-body">
-        <p class="mb-2">
-          Export happens from the <strong>Items</strong> page:
+        <h5 class="fw-semibold mb-2"><i class="bi bi-download me-2"></i>Export items</h5>
+        <p class="text-muted small">
+          Export happens from the <strong>Items</strong> list.<br>
+          Select one or more items and click <strong>Export…</strong>.
         </p>
-        <ol class="small text-muted mb-0">
-          <li>Select one or more items</li>
-          <li>Choose format (CSV / Excel / JSON)</li>
-          <li>Press <strong>Export</strong></li>
-        </ol>
+
+        <div class="alert alert-secondary small mb-0">
+          Export formats: CSV, Excel (.xlsx), JSON.
+        </div>
       </div>
     </div>
   </div>
 </div>
+
 {% endblock %}

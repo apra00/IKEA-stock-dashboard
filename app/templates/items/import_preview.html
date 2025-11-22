@@ -1,140 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Import wizard – IKEA Availability{% endblock %}
-
+{% block title %}Import mapping – IKEA Availability{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
-    <h2 class="mb-0 fw-bold">
-      <i class="bi bi-magic me-2 text-primary"></i>Import wizard
-    </h2>
+    <h2 class="mb-1">Import mapping</h2>
     <div class="text-muted small">
-      File: <strong>{{ filename }}</strong> · {{ preview_rows|length }} preview rows
+      Map your file’s columns to IKEA Checker fields.
+      {% if not has_header %}
+        <span class="ms-1 badge bg-warning text-dark">Headerless mode</span>
+      {% endif %}
     </div>
   </div>
   <a href="{{ url_for('items.import_export_page') }}" class="btn btn-outline-secondary btn-sm">
-    Cancel
+    <i class="bi bi-arrow-left me-1"></i>Back
   </a>
 </div>
 
-<div class="card shadow-sm rounded-4">
-  <div class="card-header bg-white border-0 pt-3 px-3">
-    <strong>Step 1 — Map columns</strong>
-    <div class="small text-muted">Pick which file column corresponds to each item field.</div>
-  </div>
-  <div class="card-body">
-    <form method="post" action="{{ url_for('items.import_commit') }}" id="import-commit-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="rows_json" value="{{ rows_json|e }}">
-      <input type="hidden" name="mapping_json" id="mapping_json">
+<form method="post" action="{{ url_for('items.import_submit') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card shadow-sm rounded-4 mb-3">
+    <div class="card-body">
+      <h5 class="fw-semibold mb-3">1) Column mapping</h5>
+
+      {% macro col_select(name, required=false, hint="") -%}
+      <div class="col-md-6">
+        <label class="form-label">
+          {{ name.replace("map_", "").replace("_", " ").title() }}
+          {% if required %}<span class="text-danger">*</span>{% endif %}
+        </label>
+        <select class="form-select" name="{{ name }}" {% if required %}required{% endif %}>
+          <option value="">-- Not mapped --</option>
+          {% for c in columns %}
+            <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+        {% if hint %}<div class="form-text">{{ hint }}</div>{% endif %}
+      </div>
+      {%- endmacro %}
 
       <div class="row g-3">
-        {% set fields = [
-          ("name","Name (required)"),
-          ("product_id","Product ID (required)"),
-          ("country_code","Country code (required)"),
-          ("store_ids","Store IDs (optional)"),
-          ("folder_name","Folder name per-row (optional)"),
-          ("is_active","Active (optional)"),
-          ("notify_enabled","Notify enabled (optional)"),
-          ("notify_threshold","Notify threshold (optional)")
-        ] %}
-
-        {% for field_key, field_label in fields %}
-        <div class="col-md-6">
-          <label class="form-label">{{ field_label }}</label>
-          <select class="form-select mapping-select" data-field="{{ field_key }}">
-            <option value="__ignore__">Ignore</option>
-            {% for c in columns %}
-              <option value="{{ c }}">{{ c }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        {% endfor %}
+        {{ col_select("map_name", true, "Your item’s display name") }}
+        {{ col_select("map_product_id", true, "IKEA product id (exact)") }}
+        {{ col_select("map_country_code", true, "Country code, e.g. HU, DE") }}
+        {{ col_select("map_store_ids", false, "Comma-separated store IDs") }}
+        {{ col_select("map_is_active", false, "true/false/1/0") }}
+        {{ col_select("map_notify_enabled", false, "true/false/1/0") }}
+        {{ col_select("map_notify_threshold", false, "Number, total stock threshold") }}
       </div>
 
       <hr class="my-4">
 
-      <strong>Step 2 — Target folder</strong>
-      <div class="small text-muted mb-2">Apply one folder to all imported items (optional).</div>
+      <h5 class="fw-semibold mb-2">2) Folder assignment</h5>
+      <div class="row g-2">
+        <div class="col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="folder_mode" id="folder_none" value="none" checked>
+            <label class="form-check-label" for="folder_none">No folder</label>
+          </div>
+        </div>
 
-      <div class="row g-2 align-items-center">
-        <div class="col-md-6">
-          <select class="form-select" name="folder_choice" id="folder-choice">
-            <option value="__none__">(No folder)</option>
-            {% for cat in categories %}
-              <option value="{{ cat.name }}">{{ cat.name }}</option>
+        <div class="col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="folder_mode" id="folder_existing" value="existing">
+            <label class="form-check-label" for="folder_existing">Existing folder</label>
+          </div>
+          <select class="form-select mt-2" name="existing_folder" id="existing_folder_select" disabled>
+            <option value="">-- choose --</option>
+            {% for f in categories %}
+              <option value="{{ f.name }}">{{ f.name }}</option>
             {% endfor %}
-            <option value="__new__">+ Create new folder…</option>
           </select>
         </div>
-        <div class="col-md-6">
-          <input class="form-control d-none" type="text" name="new_folder_name"
-                 id="new-folder-name" placeholder="New folder name">
+
+        <div class="col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="folder_mode" id="folder_new" value="new">
+            <label class="form-check-label" for="folder_new">New folder</label>
+          </div>
+          <input class="form-control mt-2" type="text" name="new_folder" id="new_folder_input"
+                 placeholder="New folder name" disabled>
         </div>
       </div>
 
-      <hr class="my-4">
+      <div class="mt-4">
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-check2-circle me-1"></i>Import items
+        </button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('items.import_export_page') }}">Cancel</a>
+      </div>
+    </div>
+  </div>
 
-      <strong>Preview</strong>
-      <div class="small text-muted mb-2">First 20 rows from your file.</div>
-
-      <div class="table-responsive mb-3">
-        <table class="table table-sm table-striped align-middle">
+  <div class="card shadow-sm rounded-4">
+    <div class="card-body">
+      <h6 class="fw-semibold mb-2">Preview (first rows)</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle mb-0">
           <thead class="table-light">
             <tr>
               {% for c in columns %}
-                <th class="text-nowrap">{{ c }}</th>
+                <th>{{ c }}</th>
               {% endfor %}
             </tr>
           </thead>
           <tbody>
-            {% for r in preview_rows %}
+            {% for r in rows_preview %}
               <tr>
                 {% for c in columns %}
-                  <td class="text-nowrap">{{ r[c] }}</td>
+                  <td class="small text-muted">{{ r.get(c, "") }}</td>
                 {% endfor %}
               </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-
-      <button class="btn btn-primary" type="submit">
-        <i class="bi bi-upload me-1"></i>Import items
-      </button>
-    </form>
+    </div>
   </div>
-</div>
+</form>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const form = document.getElementById("import-commit-form");
-  const selects = Array.from(document.querySelectorAll(".mapping-select"));
-  const mappingHidden = document.getElementById("mapping_json");
+  const none = document.getElementById("folder_none");
+  const existing = document.getElementById("folder_existing");
+  const neu = document.getElementById("folder_new");
 
-  function buildMapping() {
-    const m = {};
-    selects.forEach(sel => {
-      m[sel.dataset.field] = sel.value;
-    });
-    mappingHidden.value = JSON.stringify(m);
+  const existingSelect = document.getElementById("existing_folder_select");
+  const newInput = document.getElementById("new_folder_input");
+
+  function syncFolderUI() {
+    existingSelect.disabled = !existing.checked;
+    newInput.disabled = !neu.checked;
   }
 
-  selects.forEach(sel => sel.addEventListener("change", buildMapping));
-  buildMapping();
-
-  const folderChoice = document.getElementById("folder-choice");
-  const newFolder = document.getElementById("new-folder-name");
-
-  folderChoice.addEventListener("change", () => {
-    if (folderChoice.value === "__new__") {
-      newFolder.classList.remove("d-none");
-      newFolder.focus();
-    } else {
-      newFolder.classList.add("d-none");
-      newFolder.value = "";
-    }
-  });
+  [none, existing, neu].forEach(r => r.addEventListener("change", syncFolderUI));
+  syncFolderUI();
 });
 </script>
+
 {% endblock %}

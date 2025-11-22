@@ -1,7 +1,12 @@
-from datetime import datetime, timedelta
-import json
-import io
+from __future__ import annotations
 
+from datetime import datetime, timedelta
+import io
+import csv
+import json
+from typing import Any, Dict, List, Tuple
+
+import pandas as pd
 from flask import (
     Blueprint,
     render_template,
@@ -13,64 +18,122 @@ from flask import (
     send_file,
 )
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
 
 from ..extensions import db
 from ..models import Item, AvailabilitySnapshot, Folder
 from ..ikea_service import (
     check_item,
-    check_all_active_items,
     get_stores_for_country,
     get_live_availability_for_item,
 )
 
-# Optional deps for import/export
-try:
-    import pandas as pd  # type: ignore
-except Exception:  # pragma: no cover
-    pd = None
-
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
 
+# -----------------------------
+# Helpers / Permissions
+# -----------------------------
 def _require_edit_permission():
     if not current_user.can_edit_items:
-        flash("You do not have permission to edit items.", "danger")
+        flash("You are not authorized to modify items.", "danger")
         return False
     return True
 
 
-def _get_or_create_folder_for_user(user_id, folder_name: str):
-    folder = Folder.query.filter_by(user_id=user_id, name=folder_name).first()
+def _get_or_create_folder_for_user(user_id: int, name: str | None):
+    if not name:
+        return None
+    clean_name = name.strip()
+    if not clean_name:
+        return None
+
+    folder = Folder.query.filter_by(user_id=user_id, name=clean_name).first()
     if folder:
         return folder
-    folder = Folder(user_id=user_id, name=folder_name)
+
+    folder = Folder(user_id=user_id, name=clean_name)
     db.session.add(folder)
-    db.session.commit()
+    db.session.flush()
     return folder
 
 
-def _cleanup_empty_folders(user_id):
-    """
-    Delete folders for the user that have no remaining items.
-    """
-    empty = (
-        Folder.query.filter_by(user_id=user_id)
-        .outerjoin(Item)
-        .group_by(Folder.id)
-        .having(db.func.count(Item.id) == 0)
-        .all()
-    )
-    for f in empty:
-        db.session.delete(f)
-    if empty:
-        db.session.commit()
+def _cleanup_empty_folders(user_id: int | None = None):
+    query = Folder.query
+    if user_id is not None:
+        query = query.filter_by(user_id=user_id)
+
+    folders = query.all()
+    for f in folders:
+        if not f.items:
+            db.session.delete(f)
 
 
+def _parse_uploaded_table(file_storage, has_header: bool = True) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Parse CSV or XLSX uploaded file into (columns, rows).
+
+    - Always reads everything as strings to avoid Excel auto-typing issues.
+    - If has_header=False, first row is treated as data and columns
+      become Column 1, Column 2, ...
+    """
+    filename = (file_storage.filename or "").lower()
+
+    if filename.endswith(".csv"):
+        # Read as strings, allow headerless
+        df = pd.read_csv(
+            file_storage,
+            dtype=str,
+            header=0 if has_header else None,
+            keep_default_na=False,
+        )
+        df = df.fillna("")
+
+    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        df = pd.read_excel(
+            file_storage,
+            dtype=str,
+            header=0 if has_header else None,
+        )
+        df = df.fillna("")
+
+    else:
+        raise ValueError("Unsupported file type. Use CSV or Excel (.xlsx).")
+
+    # If no header, create placeholder names
+    if not has_header:
+        df.columns = [f"Column {i+1}" for i in range(len(df.columns))]
+    else:
+        df.columns = [str(c).strip() for c in df.columns]
+
+    cols = list(df.columns.astype(str))
+    rows = df.to_dict(orient="records")
+    rows = [{str(k): ("" if v is None else str(v)) for k, v in r.items()} for r in rows]
+
+    return cols, rows
+
+
+def _cast_bool(val: Any) -> bool:
+    if val is None:
+        return False
+    s = str(val).strip().lower()
+    return s in {"1", "true", "yes", "y", "on"}
+
+
+def _cast_int(val: Any) -> int | None:
+    if val is None or str(val).strip() == "":
+        return None
+    try:
+        return int(float(str(val).strip()))
+    except Exception:
+        return None
+
+
+# -----------------------------
+# Items list
+# -----------------------------
 @items_bp.route("/")
 @login_required
 def list_items():
-    # --- sorting: read from query or session ---
     allowed_sort_columns = {
         "added_at": Item.added_at,
         "name": Item.name,
@@ -82,59 +145,58 @@ def list_items():
         "last_checked": Item.last_checked,
         "last_probability": Item.last_probability,
         "folder": Folder.name,
-        "owner": None,  # handled separately
+        "owner": None,
     }
 
-    sort_by = request.args.get("sort") or session.get("items_sort_by") or "added_at"
-    sort_dir = request.args.get("dir") or session.get("items_sort_dir") or "desc"
+    sort_by = request.args.get("sort") or session.get("items_sort_by", "name")
+    sort_dir = request.args.get("dir") or session.get("items_sort_dir", "asc")
 
     if sort_by not in allowed_sort_columns:
-        sort_by = "added_at"
+        sort_by = "name"
     if sort_dir not in ("asc", "desc"):
-        sort_dir = "desc"
+        sort_dir = "asc"
 
     session["items_sort_by"] = sort_by
     session["items_sort_dir"] = sort_dir
 
-    query = Item.query
+    if current_user.is_admin:
+        query = Item.query.outerjoin(Folder)
+    else:
+        query = Item.query.filter_by(user_id=current_user.id).outerjoin(Folder)
 
-    # non-admin users only see their own items
-    if not current_user.is_admin:
-        query = query.filter_by(user_id=current_user.id)
-
-    # join folders for folder sorting
     if sort_by == "folder":
-        query = query.outerjoin(Folder)
-
-    if sort_by == "owner":
+        sort_column = Folder.name
+    elif sort_by == "owner":
         if current_user.is_admin:
-            query = query.outerjoin(Item.user)
-            col = db.func.lower(db.func.coalesce(db.literal_column("users.username"), ""))
+            from ..models import User
+            query = query.join(User)
+            sort_column = User.username
         else:
-            col = Item.added_at
+            sort_column = Item.name
     else:
-        col = allowed_sort_columns[sort_by]
+        sort_column = allowed_sort_columns[sort_by]
 
-    if sort_dir == "asc":
-        query = query.order_by(col.asc().nullslast())
-    else:
-        query = query.order_by(col.desc().nullslast())
+    if sort_dir == "desc":
+        sort_column = sort_column.desc()
 
-    items = query.all()
+    items = query.order_by(sort_column).all()
 
-    folders = {}
+    folder_groups: dict[str, list[Item]] = {}
     for item in items:
-        folder_name = item.folder.name if item.folder else "Uncategorized"
-        folders.setdefault(folder_name, []).append(item)
+        group_name = item.folder.name if item.folder else "No category"
+        folder_groups.setdefault(group_name, []).append(item)
 
     return render_template(
         "items/list.html",
-        folders=folders,
+        folders=folder_groups,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
 
 
+# -----------------------------
+# Single item CRUD (unchanged)
+# -----------------------------
 @items_bp.route("/add", methods=["GET", "POST"])
 @login_required
 def add_item():
@@ -144,51 +206,51 @@ def add_item():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         product_id = request.form.get("product_id", "").strip()
-        country_code = request.form.get("country_code", "").strip().lower()
+        country_code = request.form.get("country_code", "").strip().upper()
         store_ids = request.form.get("store_ids", "").strip()
         folder_name = request.form.get("folder_name", "").strip()
+
+        is_active = request.form.get("is_active") == "on"
+        notify_enabled = request.form.get("notify_enabled") == "on"
+
+        notify_threshold_raw = request.form.get("notify_threshold", "").strip()
+        notify_threshold = None
+        if notify_threshold_raw:
+            try:
+                notify_threshold = int(notify_threshold_raw)
+            except ValueError:
+                flash("Notification threshold must be an integer.", "danger")
+                categories = (
+                    Folder.query.filter_by(user_id=current_user.id)
+                    .order_by(Folder.name.asc())
+                    .all()
+                )
+                return render_template("items/form.html", item=None, categories=categories)
+
+        folder = _get_or_create_folder_for_user(current_user.id, folder_name)
+
+        item = Item(
+            user_id=current_user.id,
+            name=name,
+            product_id=product_id,
+            country_code=country_code,
+            store_ids=store_ids,
+            is_active=is_active,
+            notify_enabled=notify_enabled,
+            notify_threshold=notify_threshold,
+            folder=folder,
+        )
 
         if not name or not product_id or not country_code:
             flash("Name, product ID and country code are required.", "danger")
         else:
-            item = Item(
-                name=name,
-                product_id=product_id,
-                country_code=country_code,
-                store_ids=store_ids or None,
-                user_id=current_user.id,
-                is_active=True,
-            )
-
-            item.notify_enabled = request.form.get("notify_enabled") == "on"
-            notify_threshold_raw = request.form.get("notify_threshold", "").strip()
-            if notify_threshold_raw:
-                try:
-                    item.notify_threshold = int(notify_threshold_raw)
-                except ValueError:
-                    flash("Notification threshold must be an integer.", "danger")
-                    categories = (
-                        Folder.query.filter_by(user_id=current_user.id)
-                        .order_by(Folder.name.asc())
-                        .all()
-                    )
-                    return render_template(
-                        "items/form.html", item=None, categories=categories
-                    )
-
-            if folder_name:
-                folder = _get_or_create_folder_for_user(current_user.id, folder_name)
-                item.folder = folder
-
             db.session.add(item)
             db.session.commit()
-            flash("Item created.", "success")
+            flash("Item added.", "success")
             return redirect(url_for("items.list_items"))
 
     categories = (
-        Folder.query.filter_by(user_id=current_user.id)
-        .order_by(Folder.name.asc())
-        .all()
+        Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
     )
     return render_template("items/form.html", item=None, categories=categories)
 
@@ -200,7 +262,6 @@ def edit_item(item_id):
         return redirect(url_for("items.list_items"))
 
     item = Item.query.get_or_404(item_id)
-
     if not current_user.is_admin and item.user_id != current_user.id:
         flash("You are not allowed to edit this item.", "danger")
         return redirect(url_for("items.list_items"))
@@ -208,10 +269,10 @@ def edit_item(item_id):
     if request.method == "POST":
         item.name = request.form.get("name", "").strip()
         item.product_id = request.form.get("product_id", "").strip()
-        item.country_code = request.form.get("country_code", "").strip().lower()
-        store_ids = request.form.get("store_ids", "").strip()
+        item.country_code = request.form.get("country_code", "").strip().upper()
+        item.store_ids = request.form.get("store_ids", "").strip()
         folder_name = request.form.get("folder_name", "").strip()
-        item.store_ids = store_ids or None
+
         item.is_active = request.form.get("is_active") == "on"
 
         notify_enabled = request.form.get("notify_enabled") == "on"
@@ -249,73 +310,142 @@ def edit_item(item_id):
             return redirect(url_for("items.list_items"))
 
     categories = (
-        Folder.query.filter_by(user_id=item.user_id)
-        .order_by(Folder.name.asc())
-        .all()
+        Folder.query.filter_by(user_id=item.user_id).order_by(Folder.name.asc()).all()
     )
     return render_template("items/form.html", item=item, categories=categories)
 
 
+@items_bp.route("/<int:item_id>/delete", methods=["POST"])
+@login_required
+def delete_item(item_id):
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    item = Item.query.get_or_404(item_id)
+    if not current_user.is_admin and item.user_id != current_user.id:
+        flash("You are not allowed to delete this item.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    user_id = item.user_id
+    db.session.delete(item)
+    _cleanup_empty_folders(user_id)
+    db.session.commit()
+    flash("Item deleted.", "info")
+    return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/stores/<country_code>")
+@login_required
+def stores(country_code):
+    stores = get_stores_for_country(country_code.upper())
+    return render_template("items/stores.html", stores=stores, country_code=country_code)
+
+
+# -----------------------------
+# Bulk Update / Bulk Edit (unchanged)
+# -----------------------------
 @items_bp.route("/bulk", methods=["POST"])
 @login_required
 def bulk_update():
     if not _require_edit_permission():
         return redirect(url_for("items.list_items"))
 
-    action = request.form.get("bulk_action")
-    item_ids = request.form.getlist("item_ids")
+    raw_ids = request.form.getlist("item_ids")
+    action = request.form.get("bulk_action", "").strip()
+
+    try:
+        item_ids = [int(x) for x in raw_ids]
+    except ValueError:
+        item_ids = []
 
     if not item_ids:
-        flash("Please select at least one item.", "danger")
+        flash("No items selected for bulk action.", "warning")
         return redirect(url_for("items.list_items"))
 
-    items = Item.query.filter(Item.id.in_(item_ids)).all()
+    if action not in {"activate", "deactivate", "delete", "edit"}:
+        flash("Unknown bulk action.", "danger")
+        return redirect(url_for("items.list_items"))
 
+    query = Item.query.filter(Item.id.in_(item_ids))
     if not current_user.is_admin:
-        for it in items:
-            if it.user_id != current_user.id:
-                flash("You are not allowed to bulk edit items you do not own.", "danger")
-                return redirect(url_for("items.list_items"))
+        query = query.filter_by(user_id=current_user.id)
+
+    items = query.all()
+    if not items:
+        flash("You are not allowed to modify the selected items.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    if action == "edit":
+        ids_str = ",".join(str(i.id) for i in items)
+        return redirect(url_for("items.bulk_edit", ids=ids_str))
+
+    updated = 0
+    deleted = 0
 
     if action == "activate":
-        for it in items:
-            it.is_active = True
-        db.session.commit()
-        flash("Items activated.", "success")
-
+        for item in items:
+            if not item.is_active:
+                item.is_active = True
+                updated += 1
     elif action == "deactivate":
-        for it in items:
-            it.is_active = False
-        db.session.commit()
-        flash("Items deactivated.", "success")
-
+        for item in items:
+            if item.is_active:
+                item.is_active = False
+                updated += 1
     elif action == "delete":
-        user_id = items[0].user_id if items else None
-        for it in items:
-            db.session.delete(it)
-        if user_id:
-            _cleanup_empty_folders(user_id)
-        db.session.commit()
-        flash("Items deleted.", "info")
+        for item in items:
+            db.session.delete(item)
+            deleted += 1
+        _cleanup_empty_folders()
 
-    elif action == "edit":
-        categories = (
-            Folder.query.filter_by(user_id=items[0].user_id)
-            .order_by(Folder.name.asc())
-            .all()
-        )
-        default_folder_name = items[0].folder.name if items[0].folder else ""
-        return render_template(
-            "items/bulk_edit.html",
-            items=items,
-            categories=categories,
-            default_folder_name=default_folder_name,
-        )
+    db.session.commit()
 
+    if action == "delete":
+        flash(f"Deleted {deleted} items.", "success")
     else:
-        flash("Unknown bulk action.", "danger")
+        flash(f"Updated {updated} items.", "success")
 
     return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/bulk-edit")
+@login_required
+def bulk_edit():
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    ids_str = request.args.get("ids", "")
+    try:
+        item_ids = [int(x) for x in ids_str.split(",") if x.strip()]
+    except ValueError:
+        item_ids = []
+
+    if not item_ids:
+        flash("No items selected.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    query = Item.query.filter(Item.id.in_(item_ids))
+    if not current_user.is_admin:
+        query = query.filter_by(user_id=current_user.id)
+
+    items = query.all()
+    if not items:
+        flash("You are not allowed to edit those items.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    categories = (
+        Folder.query.filter_by(user_id=items[0].user_id)
+        .order_by(Folder.name.asc())
+        .all()
+    )
+    default_folder_name = items[0].folder.name if items[0].folder else ""
+
+    return render_template(
+        "items/bulk_edit.html",
+        items=items,
+        categories=categories,
+        default_folder_name=default_folder_name,
+    )
 
 
 @items_bp.route("/bulk-edit", methods=["POST"])
@@ -332,14 +462,13 @@ def bulk_edit_submit():
         return redirect(url_for("items.list_items"))
 
     if not current_user.is_admin:
-        for it in items:
-            if it.user_id != current_user.id:
-                flash("You are not allowed to bulk edit items you do not own.", "danger")
-                return redirect(url_for("items.list_items"))
+        items = [it for it in items if it.user_id == current_user.id]
+        if not items:
+            flash("You are not allowed to bulk edit items you do not own.", "danger")
+            return redirect(url_for("items.list_items"))
 
     folder_name = request.form.get("folder_name", "").strip()
     is_active = request.form.get("is_active") == "on"
-
     notify_enabled = request.form.get("notify_enabled") == "on"
     notify_threshold_raw = request.form.get("notify_threshold", "").strip()
     notify_threshold = None
@@ -348,18 +477,7 @@ def bulk_edit_submit():
             notify_threshold = int(notify_threshold_raw)
         except ValueError:
             flash("Notification threshold must be an integer.", "danger")
-            categories = (
-                Folder.query.filter_by(user_id=items[0].user_id)
-                .order_by(Folder.name.asc())
-                .all()
-            )
-            default_folder_name = items[0].folder.name if items[0].folder else ""
-            return render_template(
-                "items/bulk_edit.html",
-                items=items,
-                categories=categories,
-                default_folder_name=default_folder_name,
-            )
+            return redirect(url_for("items.bulk_edit", ids=",".join(item_ids)))
 
     for it in items:
         it.is_active = is_active
@@ -367,34 +485,13 @@ def bulk_edit_submit():
         it.notify_threshold = notify_threshold
 
         if folder_name:
-            folder = _get_or_create_folder_for_user(it.user_id, folder_name)
-            it.folder = folder
+            it.folder = _get_or_create_folder_for_user(it.user_id, folder_name)
         else:
             it.folder = None
 
     _cleanup_empty_folders(items[0].user_id)
     db.session.commit()
-    flash("Bulk changes applied.", "success")
-    return redirect(url_for("items.list_items"))
-
-
-@items_bp.route("/<int:item_id>/delete", methods=["POST"])
-@login_required
-def delete_item(item_id):
-    if not _require_edit_permission():
-        return redirect(url_for("items.list_items"))
-
-    item = Item.query.get_or_404(item_id)
-
-    if not current_user.is_admin and item.user_id != current_user.id:
-        flash("You are not allowed to delete this item.", "danger")
-        return redirect(url_for("items.list_items"))
-
-    user_id = item.user_id
-    db.session.delete(item)
-    _cleanup_empty_folders(user_id)
-    db.session.commit()
-    flash("Item deleted.", "info")
+    flash("Bulk edit applied.", "success")
     return redirect(url_for("items.list_items"))
 
 
@@ -455,7 +552,9 @@ def _extract_store_lines_from_snapshots(chart_history, tracked_store_ids):
     store_order = tracked_store_ids[:]
     return store_order, store_names, series
 
-
+# -----------------------------
+# IMPORT FLOW
+# -----------------------------
 @items_bp.route("/<int:item_id>")
 @login_required
 def detail(item_id):
@@ -652,11 +751,8 @@ def import_export_page():
         return redirect(url_for("items.list_items"))
 
     categories = (
-        Folder.query.filter_by(user_id=current_user.id)
-        .order_by(Folder.name.asc())
-        .all()
+        Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
     )
-
     return render_template("items/import_export.html", categories=categories)
 
 
@@ -664,146 +760,125 @@ def import_export_page():
 @login_required
 def import_preview():
     if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    file = request.files.get("file")
+    has_header = request.form.get("has_header") == "on"
+
+    if not file or not file.filename:
+        flash("Please choose a CSV or Excel file to import.", "danger")
         return redirect(url_for("items.import_export_page"))
 
-    file_storage = request.files.get("import_file")
-    if not file_storage:
-        flash("Please choose a file.", "danger")
+    try:
+        cols, rows = _parse_uploaded_table(file, has_header=has_header)
+    except Exception as e:
+        flash(str(e), "danger")
         return redirect(url_for("items.import_export_page"))
 
-    rows, columns, error = _read_import_file(file_storage)
-    if error:
-        flash(error, "danger")
+    if not cols or not rows:
+        flash("No data found in file.", "danger")
         return redirect(url_for("items.import_export_page"))
+
+    session["import_rows"] = rows[:2000]
+    session["import_cols"] = cols
 
     categories = (
-        Folder.query.filter_by(user_id=current_user.id)
-        .order_by(Folder.name.asc())
-        .all()
+        Folder.query.filter_by(user_id=current_user.id).order_by(Folder.name.asc()).all()
     )
 
-    # Give a small preview in UI, keep all rows in hidden json
     preview_rows = rows[:20]
 
     return render_template(
         "items/import_preview.html",
-        columns=columns,
-        rows_json=json.dumps(rows),
-        preview_rows=preview_rows,
+        columns=cols,
+        rows_preview=preview_rows,
         categories=categories,
-        filename=file_storage.filename,
+        has_header=has_header,
     )
 
 
-@items_bp.route("/import/commit", methods=["POST"])
+@items_bp.route("/import/submit", methods=["POST"])
 @login_required
-def import_commit():
+def import_submit():
     if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
+    rows: List[Dict[str, Any]] = session.get("import_rows") or []
+    cols: List[str] = session.get("import_cols") or []
+    if not rows or not cols:
+        flash("Import session expired. Please upload again.", "danger")
         return redirect(url_for("items.import_export_page"))
 
-    rows_json = request.form.get("rows_json", "")
-    mapping_json = request.form.get("mapping_json", "")
+    map_name = request.form.get("map_name") or ""
+    map_product_id = request.form.get("map_product_id") or ""
+    map_country = request.form.get("map_country_code") or ""
+    map_stores = request.form.get("map_store_ids") or ""
+    map_active = request.form.get("map_is_active") or ""
+    map_notify_enabled = request.form.get("map_notify_enabled") or ""
+    map_notify_threshold = request.form.get("map_notify_threshold") or ""
 
-    try:
-        rows = json.loads(rows_json) if rows_json else []
-        mapping = json.loads(mapping_json) if mapping_json else {}
-    except Exception:
-        flash("Invalid import payload.", "danger")
-        return redirect(url_for("items.import_export_page"))
+    if not map_name or not map_product_id or not map_country:
+        flash("You must map Name, Product ID and Country Code columns.", "danger")
+        return redirect(url_for("items.import_preview"))
 
-    if not rows:
-        flash("No rows to import.", "warning")
-        return redirect(url_for("items.import_export_page"))
-
-    # folder choice
-    folder_choice = request.form.get("folder_choice", "__none__")
-    new_folder_name = request.form.get("new_folder_name", "").strip()
-    folder_name = None
-    if folder_choice == "__new__":
-        folder_name = new_folder_name or None
-    elif folder_choice == "__none__":
-        folder_name = None
+    folder_mode = request.form.get("folder_mode", "none")
+    folder_name = ""
+    if folder_mode == "existing":
+        folder_name = request.form.get("existing_folder", "").strip()
+    elif folder_mode == "new":
+        folder_name = request.form.get("new_folder", "").strip()
     else:
-        folder_name = folder_choice
+        folder_name = ""
 
-    folder_obj = None
-    if folder_name:
-        folder_obj = _get_or_create_folder_for_user(current_user.id, folder_name)
+    folder = _get_or_create_folder_for_user(current_user.id, folder_name) if folder_name else None
 
     created = 0
     skipped = 0
-    errors = 0
 
-    # Helper to fetch a value from row based on mapping
-    def val(row, field):
-        col = mapping.get(field)
-        if not col or col == "__ignore__":
-            return None
-        return row.get(col)
-
-    for row in rows:
+    for r in rows:
         try:
-            name = (val(row, "name") or "").strip()
-            product_id = (val(row, "product_id") or "").strip()
-            country_code = (val(row, "country_code") or "").strip().lower()
-            store_ids = (val(row, "store_ids") or None)
+            name = str(r.get(map_name, "")).strip()
+            # IMPORTANT: keep product_id as string exactly as in file
+            product_id = str(r.get(map_product_id, "")).strip()
+            country_code = str(r.get(map_country, "")).strip().upper()
 
             if not name or not product_id or not country_code:
                 skipped += 1
                 continue
 
+            store_ids = str(r.get(map_stores, "")).strip() if map_stores else ""
+            is_active = _cast_bool(r.get(map_active)) if map_active else True
+            notify_enabled = _cast_bool(r.get(map_notify_enabled)) if map_notify_enabled else False
+            notify_threshold = _cast_int(r.get(map_notify_threshold)) if map_notify_threshold else None
+
             item = Item(
-                name=name,
-                product_id=str(product_id).replace(".", ""),
-                country_code=country_code,
-                store_ids=str(store_ids).strip() if store_ids else None,
                 user_id=current_user.id,
-                is_active=True,
+                name=name,
+                product_id=product_id,
+                country_code=country_code,
+                store_ids=store_ids,
+                is_active=is_active,
+                notify_enabled=notify_enabled,
+                notify_threshold=notify_threshold,
+                folder=folder,
             )
-
-            # optional fields
-            is_active_raw = val(row, "is_active")
-            if is_active_raw is not None:
-                s = str(is_active_raw).strip().lower()
-                item.is_active = s in ("1", "true", "yes", "y", "on")
-
-            notify_enabled_raw = val(row, "notify_enabled")
-            if notify_enabled_raw is not None:
-                s = str(notify_enabled_raw).strip().lower()
-                item.notify_enabled = s in ("1", "true", "yes", "y", "on")
-
-            notify_th_raw = val(row, "notify_threshold")
-            if notify_th_raw is not None and str(notify_th_raw).strip() != "":
-                try:
-                    item.notify_threshold = int(float(notify_th_raw))
-                except Exception:
-                    item.notify_threshold = None
-
-            if folder_obj:
-                item.folder = folder_obj
-            else:
-                # if they mapped folder_name as column, allow per-row folders
-                row_folder = val(row, "folder_name")
-                if row_folder:
-                    fobj = _get_or_create_folder_for_user(
-                        current_user.id, str(row_folder).strip()
-                    )
-                    item.folder = fobj
-
             db.session.add(item)
             created += 1
         except Exception:
-            errors += 1
+            skipped += 1
 
     db.session.commit()
 
-    flash(
-        f"Import finished. Created {created}, skipped {skipped}, errors {errors}.",
-        "success" if created else "warning",
-    )
+    session.pop("import_rows", None)
+    session.pop("import_cols", None)
+
+    flash(f"Import finished. Created: {created}, Skipped: {skipped}.", "success")
     return redirect(url_for("items.list_items"))
 
 
+# -----------------------------
+# EXPORT (unchanged)
+# -----------------------------
 @items_bp.route("/export", methods=["POST"])
 @login_required
 def export_items():
