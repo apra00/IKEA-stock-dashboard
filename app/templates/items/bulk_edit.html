@@ -43,43 +43,51 @@
 
           <hr class="my-3">
 
-          <!-- Category selector -->
+          <h6 class="mb-2">Status</h6>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1">
+            <label class="form-check-label" for="is_active">
+              Set all selected items to active (uncheck to not change).
+            </label>
+          </div>
+
+          <hr class="my-3">
+
+          <h6 class="mb-2">Category / folder</h6>
           <div class="mb-3">
-            <label class="form-label">Category</label>
-            <select id="category-select" class="form-select">
-              <option value="__none__">(Leave without category)</option>
-              {% for cat in categories or [] %}
-                {% set is_selected = default_folder_name and (default_folder_name == cat.name) %}
-                <option value="{{ cat.name }}" {% if is_selected %}selected{% endif %}>
-                  {{ cat.name }}
-                </option>
+            <label class="form-label">Folder</label>
+            <select class="form-select" id="category-select">
+              <option value="__nochange__" selected>Do not change</option>
+              <option value="__none__">No folder</option>
+              {% for f in categories %}
+                <option value="{{ f.name }}">{{ f.name }}</option>
               {% endfor %}
-              <option value="__new__">+ Add new category…</option>
+              <option value="__new__">+ New folder…</option>
             </select>
+            <input type="hidden" name="folder_name_hidden" id="folder_name_hidden" value="">
 
-            <input type="hidden"
-                   name="folder_name"
-                   id="folder_name_hidden"
-                   value="{{ default_folder_name|default('') }}">
-
-            <div class="mt-2 d-none" id="new-category-wrapper">
-              <input type="text" class="form-control" id="new-category-input"
-                     placeholder="New category name">
+            <div id="new-category-wrapper" class="mt-2 d-none">
+              <input type="text" id="new-category-input"
+                     class="form-control"
+                     placeholder="New folder name">
               <div class="form-text">
-                Type a name and it will be created just for you.
+                A new folder will be created with this name and applied to all selected items.
               </div>
-            </div>
-
-            <div class="form-text">
-              This category will be applied to all selected items.
             </div>
           </div>
 
-          <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="is_active" name="is_active">
-            <label class="form-check-label" for="is_active">
-              Set all selected items to <strong>active</strong> (leave unchecked to set them inactive).
-            </label>
+          <div class="mb-3">
+            <label class="form-label">Tags</label>
+            <input
+              name="tags"
+              class="form-control"
+              placeholder="Leave empty to keep existing tags. Use comma-separated list to overwrite for all selected items."
+            >
+            <div class="form-text">
+              Example: <code>kitchen, high priority, sale</code>.  
+              If you submit an empty value, tags are unchanged.  
+              If you submit only spaces/commas, tags will be cleared on all selected items.
+            </div>
           </div>
 
           <hr class="my-3">
@@ -139,6 +147,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 newCategoryInput.value = "";
             }
             hiddenFolderName.value = "";
+        } else if (val === "__nochange__") {
+            if (newCategoryWrapper) {
+                newCategoryWrapper.classList.add("d-none");
+            }
+            if (newCategoryInput) {
+                newCategoryInput.value = "";
+            }
+            hiddenFolderName.value = "__nochange__";
         } else {
             if (newCategoryWrapper) {
                 newCategoryWrapper.classList.add("d-none");
@@ -157,7 +173,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (newCategoryInput) {
         newCategoryInput.addEventListener("input", function () {
-            if (hiddenFolderName) {
+            if (hiddenFolderName && categorySelect.value === "__new__") {
                 hiddenFolderName.value = newCategoryInput.value.trim();
             }
         });
