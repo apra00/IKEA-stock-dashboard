@@ -72,6 +72,9 @@ class Tag(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     name = db.Column(db.String(64), nullable=False)
 
+    # NEW: timestamp to match DB schema (NOT NULL)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
     # Link back to owner user
     user = db.relationship("User", back_populates="tags")
 
@@ -165,6 +168,8 @@ def create_default_admin():
     Security: generates a random password, prints it to console.
     This is intended for first-time setup only.
     """
+    from .models import User  # avoid circular import at module import time
+
     if User.query.count() > 0:
         return
 

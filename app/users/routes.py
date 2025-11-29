@@ -91,8 +91,8 @@ def delete_user(user_id):
         return redirect(url_for("dashboard.index"))
 
     user = User.query.get_or_404(user_id)
-    if user.username == "admin":
-        flash("Cannot delete the default admin user.", "danger")
+    if user.role == "admin":
+        flash("Cannot delete the admin user.", "danger")
         return redirect(url_for("users.list_users"))
 
     db.session.delete(user)
