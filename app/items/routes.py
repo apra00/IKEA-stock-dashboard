@@ -867,7 +867,8 @@ def export_items():
                 "notify_enabled": "1" if it.notify_enabled else "0",
                 "last_stock": it.last_stock if it.last_stock is not None else "",
                 "last_probability": it.last_probability or "",
-                "last_checked": it.last_checked.isoformat()
+                "last_checked": it.last_checked.isoformat(),
+                "created_at": it.created_at.isoformat()
                 if it.last_checked
                 else "",
                 "tags": tags_str,
