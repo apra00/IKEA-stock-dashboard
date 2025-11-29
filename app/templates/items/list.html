@@ -165,7 +165,7 @@
 
 <div class="card shadow-sm">
   <div class="card-body p-0">
-    <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
+    <form method="post" action="{{ url_for('items.bulk_edit') }}" id="bulk-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <div class="px-3 pt-3 pb-2 bulk-toolbar">
