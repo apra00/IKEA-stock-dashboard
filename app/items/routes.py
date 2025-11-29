@@ -258,12 +258,14 @@ def list_items():
     sort_desc = request.args.get("desc", "0") == "1"
 
     sort_column = Item.name
-    if sort_by == "created":
+    if sort_by == "created_at":
         sort_column = Item.created_at
     elif sort_by == "last_checked":
         sort_column = Item.last_checked
-    elif sort_by == "stock":
+    elif sort_by == "last_stock":
         sort_column = Item.last_stock
+    elif sort_by == "active":
+        sort_column = Item.is_active
 
     if sort_desc:
         sort_column = sort_column.desc()
@@ -284,7 +286,7 @@ def list_items():
 
     return render_template(
         "items/list.html",
-        folder_groups=sorted_folder_groups,
+        folders=dict(sorted_folder_groups),
         search=search,
         sort_by=sort_by,
         sort_desc=sort_desc,
@@ -456,7 +458,6 @@ def edit_item(item_id: int):
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])
 @login_required
-@csrf.exempt  # CSRF handled via hidden token already
 def delete_item(item_id: int):
     item = Item.query.get_or_404(item_id)
 
@@ -621,19 +622,20 @@ def detail(item_id: int):
         return redirect(url_for("items.list_items"))
 
     # History range selection
-    range_str = request.args.get("range", "30")
-    try:
-        days = int(range_str)
-    except ValueError:
-        days = 30
+    RANGES = {
+        "24h": 1,
+        "7d": 7,
+        "30d": 30,
+        "all": None,
+    }
+    range_key = request.args.get("range", "30d")
+    days = RANGES.get(range_key, 30)
+    query = AvailabilitySnapshot.query.filter_by(item_id=item.id)
+    if days is not None:
+        since = datetime.utcnow() - timedelta(days=days)
+        query = query.filter(AvailabilitySnapshot.timestamp >= since)
 
-    since = datetime.utcnow() - timedelta(days=days)
-    history = (
-        AvailabilitySnapshot.query.filter_by(item_id=item.id)
-        .filter(AvailabilitySnapshot.timestamp >= since)
-        .order_by(AvailabilitySnapshot.timestamp.asc())
-        .all()
-    )
+    history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
 
     labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in history]
     stocks = [h.total_stock if h.total_stock is not None else 0 for h in history]
@@ -655,6 +657,7 @@ def detail(item_id: int):
         history=history,
         chart_labels=chart_labels,
         chart_datasets=chart_datasets,
+        range_key=range_key,
         range_days=days,
         live_data=live_data,
         live_error=live_error,
@@ -846,6 +849,7 @@ def export_items():
             "last_probability",
             "last_checked",
             "tags",
+            "created_at",
         ],
     )
     writer.writeheader()
