@@ -51,53 +51,60 @@
           </div>
 
           <div class="mb-3">
-            <label class="form-label">Store IDs (buCode, comma separated)</label>
+            <label class="form-label">Store IDs (optional)</label>
             <input name="store_ids" class="form-control"
-                   value="{% if item and item.store_ids %}{{ item.store_ids }}{% else %}{{ default_store_ids|default('') }}{% endif %}">
+                   value="{{ item.store_ids if item and item.store_ids else '' }}">
             <div class="form-text">
-              Leave empty to check all stores in the country. Use buCode from the Stores page.
+              Comma-separated list of store IDs (buCode). Leave empty to track all stores in the country.
             </div>
           </div>
 
-          <!-- Category selector (formerly "Folder") -->
           <div class="mb-3">
-            <label class="form-label">Category</label>
-            <select id="category-select" class="form-select">
-              <option value="__none__">(No category)</option>
-              {% for cat in categories or [] %}
-                {% set is_selected =
-                     (item and item.folder and item.folder.id == cat.id)
-                     or (not item and default_folder_name|default('') == cat.name) %}
-                <option value="{{ cat.name }}" {% if is_selected %}selected{% endif %}>
-                  {{ cat.name }}
+            <label class="form-label">Tags</label>
+            <input
+              name="tags"
+              class="form-control"
+              id="tags-input"
+              value="{% if item and item.tags %}{{ item.tags | map(attribute='name') | join(', ') }}{% endif %}"
+              placeholder="e.g. kitchen, sale, wishlist"
+            >
+            <div class="form-text">
+              Optional comma-separated labels for flexible grouping (more powerful than folders).
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Category / folder (optional)</label>
+            <select class="form-select" id="category-select">
+              <option value="__none__"
+                      {% if not item or not item.folder %}selected{% endif %}>
+                No folder
+              </option>
+              {% for f in categories %}
+                <option value="{{ f.name }}"
+                        {% if item and item.folder and item.folder.name == f.name %}selected{% endif %}>
+                  {{ f.name }}
                 </option>
               {% endfor %}
-              <option value="__new__">+ Add new category…</option>
+              <option value="__new__">+ New folder…</option>
             </select>
+            <input type="hidden" name="folder_name_hidden" id="folder_name_hidden"
+                   value="{{ item.folder.name if item and item.folder else '' }}">
 
-            <input type="hidden"
-                   name="folder_name"
-                   id="folder_name_hidden"
-                   value="{% if item and item.folder %}{{ item.folder.name }}{% else %}{{ default_folder_name|default('') }}{% endif %}">
-
-            <div class="mt-2 d-none" id="new-category-wrapper">
-              <input type="text" class="form-control" id="new-category-input"
-                     placeholder="New category name">
+            <div id="new-category-wrapper" class="mt-2 d-none">
+              <input type="text" id="new-category-input"
+                     class="form-control"
+                     placeholder="New folder name">
               <div class="form-text">
-                Type a name and it will be created just for you.
+                A new folder will be created with this name.
               </div>
-            </div>
-
-            <div class="form-text">
-              Optional. Items are grouped by category per user.
-              The last used category will be suggested automatically.
             </div>
           </div>
 
-          <div class="form-check mb-3">
+          <div class="form-check form-switch mb-3">
             <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
                    {% if not item or item.is_active %}checked{% endif %}>
-            <label class="form-check-label" for="is_active">Active</label>
+            <label class="form-check-label" for="is_active">Item is active (include in checks)</label>
           </div>
 
           <hr class="my-3">
@@ -109,17 +116,15 @@
                    type="number"
                    min="0"
                    class="form-control"
-                   value="{% if item and item.notify_threshold is not none %}{{ item.notify_threshold }}{% endif %}">
-            <div class="form-text">
-              When the total stock reaches or exceeds this value, an email alert is sent (if enabled).
-            </div>
+                   value="{{ item.notify_threshold if item and item.notify_threshold is not none else '' }}"
+                   placeholder="Leave empty to disable threshold notifications">
           </div>
 
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" id="notify_enabled" name="notify_enabled"
                    {% if item and item.notify_enabled %}checked{% endif %}>
             <label class="form-check-label" for="notify_enabled">
-              Enable email notifications for this item
+              Enable notifications when stock crosses the threshold.
             </label>
           </div>
 

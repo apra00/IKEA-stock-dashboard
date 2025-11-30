@@ -12,22 +12,28 @@ from flask import (
     current_app,
 )
 from flask_login import login_required, current_user
-from sqlalchemy import func, or_
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
+from collections import Counter
+
 
 from ..extensions import db
 from ..models import Item, AvailabilitySnapshot
 from ..ikea_service import check_all_active_items
+
+
+
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
 # -------------------------------------------------------------------
 # In-memory "check running" tracking (best effort)
 # -------------------------------------------------------------------
-_CHECK_RUNNING = {}
+_CHECK_RUNNING: dict[int, datetime] = {}
 _CHECK_LOCK = Lock()
 
 
-def _set_running(user_id, running):
+def _set_running(user_id: int, running: bool) -> None:
     with _CHECK_LOCK:
         if running:
             _CHECK_RUNNING[user_id] = datetime.utcnow()
@@ -35,12 +41,12 @@ def _set_running(user_id, running):
             _CHECK_RUNNING.pop(user_id, None)
 
 
-def _is_running(user_id):
+def _is_running(user_id: int) -> bool:
     with _CHECK_LOCK:
         return user_id in _CHECK_RUNNING
 
 
-def _humanize_ago(dt):
+def _humanize_ago(dt: datetime | None) -> str | None:
     """Return a short 'how long ago' string like '8m ago', '2h ago', '3d ago'."""
     if not dt:
         return None
@@ -76,7 +82,7 @@ def _humanize_ago(dt):
     return f"{years}y ago"
 
 
-def _run_check_all_in_background(app, user_id):
+def _run_check_all_in_background(app, user_id: int) -> None:
     """
     Background runner for check_all.
     The Flask app is passed in so we can create an app context in this thread.
@@ -86,86 +92,85 @@ def _run_check_all_in_background(app, user_id):
             from ..models import User  # local import to avoid circulars
 
             user = User.query.get(user_id)
-            # If user disappeared, just stop gracefully
             if not user:
                 return
 
-            # Run the actual IKEA checks
-            check_all_active_items(user)
-        except Exception as exc:  # noqa: F841
-            # Best-effort logging; don't crash the thread silently
-            try:
-                app.logger.exception("Background check_all_active_items failed")
-            except Exception:
-                pass
+            # Admins: check all active items; normal users: just their own
+            if user.is_admin:
+                check_all_active_items(None)
+            else:
+                check_all_active_items(user.id)
         finally:
             _set_running(user_id, False)
 
 
+# -------------------------------------------------------------------
+# Dashboard
+# -------------------------------------------------------------------
 @dashboard_bp.route("/")
 @login_required
 def index():
-    # Per-user separation on dashboard
-    item_query = Item.query
-    if not current_user.is_admin:
-        item_query = item_query.filter_by(user_id=current_user.id)
+    # Base query for visible items
+    if current_user.is_admin:
+        item_query = Item.query
+    else:
+        item_query = Item.query.filter_by(user_id=current_user.id)
 
+    # --- Counters ---------------------------------------------------
     total_items = item_query.count()
-
     active_items = item_query.filter_by(is_active=True).count()
     inactive_items = total_items - active_items
 
-    in_stock_items = item_query.filter(
-        Item.last_stock.isnot(None), Item.last_stock > 0
-    ).count()
+    in_stock_items = (
+        item_query.filter(Item.last_stock.isnot(None), Item.last_stock > 0).count()
+    )
+    out_of_stock_items = item_query.filter(Item.last_stock == 0).count()
+    unknown_stock_items = total_items - in_stock_items - out_of_stock_items
 
-    out_of_stock_items = item_query.filter(
-        Item.last_stock.isnot(None), Item.last_stock <= 0
-    ).count()
+    notify_enabled_items = item_query.filter_by(notify_enabled=True).count()
 
-    unknown_stock_items = item_query.filter(Item.last_stock.is_(None)).count()
+    # --- Last check + latest activity -------------------------------
+    snap_query = AvailabilitySnapshot.query.join(Item)
+    if not current_user.is_admin:
+        snap_query = snap_query.filter(Item.user_id == current_user.id)
 
-    notify_enabled_items = item_query.filter(Item.notify_enabled.is_(True)).count()
-
-    last_check = item_query.with_entities(func.max(Item.last_checked)).scalar()
+    last_snapshot = snap_query.order_by(
+        AvailabilitySnapshot.timestamp.desc()
+    ).first()
+    last_check = last_snapshot.timestamp if last_snapshot else None
     last_check_ago = _humanize_ago(last_check)
 
-    # Latest activity snapshots
-    snapshots_query = (
-        db.session.query(AvailabilitySnapshot)
-        .join(Item, AvailabilitySnapshot.item_id == Item.id)
+    latest_snapshots = (
+        snap_query.order_by(AvailabilitySnapshot.timestamp.desc())
+        .limit(20)
+        .all()
     )
-    if not current_user.is_admin:
-        snapshots_query = snapshots_query.filter(Item.user_id == current_user.id)
 
-    latest_snapshots = snapshots_query.order_by(
-        AvailabilitySnapshot.timestamp.desc()
-    ).limit(12).all()
-
-    # Recently checked items (for quick glance list)
+    # --- Recently checked items ------------------------------------
     recently_checked_items = (
-        item_query.order_by(Item.last_checked.desc().nullslast())
-        .limit(6)
+        item_query.filter(Item.last_checked.isnot(None))
+        .order_by(Item.last_checked.desc().nullslast())
+        .limit(8)
         .all()
     )
 
-    # Recently added items
-    recently_added_items = (
-        item_query.order_by(Item.added_at.desc().nullslast())
-        .limit(6)
+    # --- Recently created items (USES created_at) ---------------------
+    recently_created_items = (
+        item_query.order_by(Item.created_at.desc().nullslast())
+        .limit(8)
         .all()
     )
 
-    # Items that changed stock in last 24h (simple heuristic)
+    # --- Items that changed stock in last 24h -----------------------
     cutoff_24h = datetime.utcnow() - timedelta(hours=24)
-    changed_item_ids = (
+    changed_item_ids_rows = (
         db.session.query(AvailabilitySnapshot.item_id)
         .filter(AvailabilitySnapshot.timestamp >= cutoff_24h)
         .group_by(AvailabilitySnapshot.item_id)
         .having(func.count(AvailabilitySnapshot.id) >= 2)
         .all()
     )
-    changed_item_ids = [row[0] for row in changed_item_ids]
+    changed_item_ids = [row[0] for row in changed_item_ids_rows]
 
     changed_recently_items = []
     if changed_item_ids:
@@ -175,6 +180,28 @@ def index():
             .limit(8)
             .all()
         )
+
+    # --- NEW: top tags across visible items -------------------------
+    top_tags: list[dict[str, int]] = []
+    # Only load items that actually have tags, with tags pre-loaded
+    tagged_items = (
+        item_query.options(selectinload(Item.tags))
+        .filter(Item.tags.any())
+        .all()
+    )
+
+    tag_counter: Counter[str] = Counter()
+    for it in tagged_items:
+        for t in (it.tags or []):
+            if t and t.name:
+                tag_counter[t.name] += 1
+
+    top_tags = [
+        {"name": name, "count": count}
+        for name, count in sorted(
+            tag_counter.items(), key=lambda kv: (-kv[1], kv[0].lower())
+        )[:10]  # top 10 tags
+    ]
 
     check_running = _is_running(current_user.id)
 
@@ -191,9 +218,10 @@ def index():
         last_check_ago=last_check_ago,
         latest_snapshots=latest_snapshots,
         recently_checked_items=recently_checked_items,
-        recently_added_items=recently_added_items,
+        recently_created_items=recently_created_items,
         changed_recently_items=changed_recently_items,
         check_running=check_running,
+        top_tags=top_tags,   # NEW
     )
 
 

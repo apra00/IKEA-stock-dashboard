@@ -16,7 +16,16 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h2 class="mb-0">{{ item.name }}</h2>
-    <small class="text-muted">Product ID: {{ item.product_id }}</small>
+    <div class="text-muted small">
+      Product ID: {{ item.product_id }}
+    </div>
+    {% if item.tags %}
+      <div class="mt-1">
+        {% for tag in item.tags %}
+          <span class="badge rounded-pill text-bg-light border me-1 small">{{ tag.name }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
   </div>
 
   <div class="text-end">

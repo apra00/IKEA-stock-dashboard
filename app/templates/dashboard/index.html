@@ -239,11 +239,11 @@
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
       <div class="card-header bg-white border-0 pt-3 px-3">
-        <strong>Recently added</strong>
+        <strong>Recently created</strong>
       </div>
       <div class="card-body p-0">
         <div class="list-group list-group-flush list-compact">
-          {% for it in recently_added_items %}
+          {% for it in recently_created_items %}
             <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                href="{{ url_for('items.detail', item_id=it.id) }}">
               <div class="text-truncate" style="max-width:70%;">
@@ -253,8 +253,8 @@
                 </div>
               </div>
               <div class="text-muted small">
-                {% if it.added_at %}
-                  {{ it.added_at.strftime('%m-%d') }}
+                {% if it.created_at %}
+                  {{ it.created_at.strftime('%m-%d %H:%M') }}
                 {% else %}
                   -
                 {% endif %}
@@ -268,6 +268,40 @@
     </div>
   </div>
 </div>
+
+{# --- TAG CARD (NEW) --------------------------------------------- #}
+<div class="row g-3 mb-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm rounded-4 h-100">
+      <div class="card-header bg-white border-0 pt-3 px-3 d-flex justify-content-between align-items-center">
+        <strong>Tags</strong>
+        {% if top_tags %}
+          <small class="text-muted">Top {{ top_tags|length }}</small>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if not top_tags %}
+          <div class="text-muted small">
+            No tags yet. Add tags to items to organise your tracking.
+          </div>
+        {% else %}
+          <div class="d-flex flex-wrap gap-2">
+            {% for tag in top_tags %}
+              <a href="{{ url_for('items.list_items', tag=tag.name) }}"
+                 class="chip text-decoration-none">
+                <span class="fw-semibold">{{ tag.name }}</span>
+                <span class="badge rounded-pill bg-light text-muted border">
+                  {{ tag.count }}
+                </span>
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{# --- END TAG CARD ----------------------------------------------- #}
 
 {% if changed_recently_items %}
 <div class="card shadow-sm rounded-4 mb-4">

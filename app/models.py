@@ -1,4 +1,8 @@
+# app/models.py
 from datetime import datetime
+import os
+import secrets
+
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
 from .extensions import db
@@ -14,6 +18,14 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(255), nullable=True)  # notification email
 
     items = db.relationship("Item", backref="user", lazy="dynamic")
+
+    # Tags owned by this user
+    tags = db.relationship(
+        "Tag",
+        back_populates="user",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -45,41 +57,94 @@ class Folder(db.Model):
         return f"<Folder {self.name} (user={self.user_id})>"
 
 
+# Association table for many-to-many Item <-> Tag
+item_tags = db.Table(
+    "item_tags",
+    db.Column("item_id", db.Integer, db.ForeignKey("items.id"), primary_key=True),
+    db.Column("tag_id", db.Integer, db.ForeignKey("tags.id"), primary_key=True),
+)
+
+
+class Tag(db.Model):
+    __tablename__ = "tags"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(64), nullable=False)
+
+    # NEW: timestamp to match DB schema (NOT NULL)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # Link back to owner user
+    user = db.relationship("User", back_populates="tags")
+
+    # Items having this tag
+    items = db.relationship(
+        "Item",
+        secondary="item_tags",
+        back_populates="tags",
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "name", name="uq_user_tag_name"),
+    )
+
+    def __repr__(self):
+        return f"<Tag {self.name} user={self.user_id}>"
+
+
 class Item(db.Model):
     __tablename__ = "items"
 
     id = db.Column(db.Integer, primary_key=True)
-    added_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    name = db.Column(db.String(128), nullable=False)
-    product_id = db.Column(db.String(32), nullable=False)
-    country_code = db.Column(db.String(8), nullable=False)
-    store_ids = db.Column(db.String(255), nullable=True)  # comma-separated buCodes
-    is_active = db.Column(db.Boolean, default=True)
 
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+    name = db.Column(db.String(255), nullable=False)
+    product_id = db.Column(db.String(64), nullable=False)
+    country_code = db.Column(db.String(8), nullable=False)
+
+    # Optional specific store IDs (CSV) or None -> all stores
+    store_ids = db.Column(db.String(255), nullable=True)
+
+    # Item active / paused
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+    # Last availability info
     last_stock = db.Column(db.Integer, nullable=True)
-    last_probability = db.Column(db.String(64), nullable=True)
+    last_probability = db.Column(db.String(255), nullable=True)
     last_checked = db.Column(db.DateTime, nullable=True)
 
-    # Notification settings
-    notify_enabled = db.Column(db.Boolean, default=False)
-    notify_threshold = db.Column(db.Integer, nullable=True)
+    # Threshold notification config
+    notify_threshold = db.Column(db.Integer, nullable=True)  # total stock threshold
+    notify_enabled = db.Column(db.Boolean, default=False, nullable=False)
     last_notified_at = db.Column(db.DateTime, nullable=True)
 
-    # Ownership & folder
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    folder_id = db.Column(db.Integer, db.ForeignKey("folders.id"), nullable=True)
+    # New: explicit created/updated timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
+    folder_id = db.Column(db.Integer, db.ForeignKey("folders.id"), nullable=True)
     folder = db.relationship("Folder", backref="items")
 
-    history = db.relationship(
-        "AvailabilitySnapshot",
-        backref="item",
-        lazy="dynamic",
-        cascade="all, delete-orphan",
+    # Many-to-many tags
+    tags = db.relationship(
+        "Tag",
+        secondary="item_tags",
+        back_populates="items",
+        lazy="joined",
     )
 
     def __repr__(self):
-        return f"<Item {self.name} ({self.product_id}) user={self.user_id}>"
+        return (
+            f"<Item {self.name} (product_id={self.product_id}, "
+            f"user_id={self.user_id})>"
+        )
 
 
 class AvailabilitySnapshot(db.Model):
@@ -87,28 +152,40 @@ class AvailabilitySnapshot(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
     total_stock = db.Column(db.Integer, nullable=True)
-    probability_summary = db.Column(db.String(64), nullable=True)
-    raw_json = db.Column(db.Text, nullable=True)  # optional: store full JSON
+    probability_summary = db.Column(db.String(255), nullable=True)
+    raw_json = db.Column(db.Text, nullable=True)
+
+    item = db.relationship("Item", backref="availability_snapshots")
 
 
 def create_default_admin():
     """
-    Create an initial admin user if no users exist.
-    """
-    if User.query.count() == 0:
-        username = os.environ.get("INITIAL_ADMIN_USERNAME", "admin")
-        pwd = os.environ.get("INITIAL_ADMIN_PASSWORD")
-        if not pwd:
-            # 20 random characters if not explicitly set
-            pwd = secrets.token_urlsafe(20)
+    Create a default admin user if no users exist.
 
-        admin = User(username=username, role="admin")
-        admin.set_password(pwd)
-        db.session.add(admin)
-        db.session.commit()
-        print(
-            f"Created default admin user: {username} / {pwd} "
-            "(please change this immediately)."
-        )
+    Security: generates a random password, prints it to console.
+    This is intended for first-time setup only.
+    """
+    from .models import User  # avoid circular import at module import time
+
+    if User.query.count() > 0:
+        return
+
+    username = "admin"
+    random_password = secrets.token_urlsafe(12)
+    admin = User(username=username, role="admin")
+    admin.set_password(random_password)
+    db.session.add(admin)
+    db.session.commit()
+
+    print("=" * 60)
+    print("Default admin user created:")
+    print(f"  Username: {username}")
+    print(f"  Password: {random_password}")
+    print("=" * 60)
+    print(
+        "Please log in immediately and change this password, "
+        "then create additional users as needed."
+    )
