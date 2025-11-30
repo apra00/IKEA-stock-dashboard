@@ -13,10 +13,16 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
+from collections import Counter
+
 
 from ..extensions import db
 from ..models import Item, AvailabilitySnapshot
 from ..ikea_service import check_all_active_items
+
+
+
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -175,6 +181,28 @@ def index():
             .all()
         )
 
+    # --- NEW: top tags across visible items -------------------------
+    top_tags: list[dict[str, int]] = []
+    # Only load items that actually have tags, with tags pre-loaded
+    tagged_items = (
+        item_query.options(selectinload(Item.tags))
+        .filter(Item.tags.any())
+        .all()
+    )
+
+    tag_counter: Counter[str] = Counter()
+    for it in tagged_items:
+        for t in (it.tags or []):
+            if t and t.name:
+                tag_counter[t.name] += 1
+
+    top_tags = [
+        {"name": name, "count": count}
+        for name, count in sorted(
+            tag_counter.items(), key=lambda kv: (-kv[1], kv[0].lower())
+        )[:10]  # top 10 tags
+    ]
+
     check_running = _is_running(current_user.id)
 
     return render_template(
@@ -193,6 +221,7 @@ def index():
         recently_created_items=recently_created_items,
         changed_recently_items=changed_recently_items,
         check_running=check_running,
+        top_tags=top_tags,   # NEW
     )
 
 
