@@ -163,9 +163,37 @@
 
 {% set total_cols = (13 if current_user.is_admin else 12) %}
 
+{# --- TAG RIBBON (NEW) ------------------------------------------ #}
+{% if tag_ribbon_tags %}
+  <div class="mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <div class="small text-muted me-1">Filter by tag:</div>
+
+      {# "All" reset chip #}
+      <a href="{{ url_for('items.list_items') }}"
+         class="chip text-decoration-none {% if not tag_filter %}fw-semibold{% endif %}">
+        All
+      </a>
+
+      {# individual tag chips #}
+      {% for tag in tag_ribbon_tags %}
+        <a href="{{ url_for('items.list_items', tag=tag.name) }}"
+           class="chip text-decoration-none
+                  {% if tag_filter == tag.name %}bg-primary text-white border-0{% endif %}">
+          <span>{{ tag.name }}</span>
+          <span class="badge rounded-pill bg-light text-muted border">
+            {{ tag.count }}
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+{# --- END TAG RIBBON -------------------------------------------- #}
+
 <div class="card shadow-sm">
   <div class="card-body p-0">
-    <form method="post" action="{{ url_for('items.bulk_update') }}" id="bulk-form">
+    <form method="post" action="{{ url_for('items.bulk_edit') }}" id="bulk-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <div class="px-3 pt-3 pb-2 bulk-toolbar">
@@ -233,23 +261,29 @@
 
               {% macro sort_link(label, col_key) -%}
                 {%- set is_active = (sort_by == col_key) -%}
-                {%- set next_dir = 'desc' if is_active and sort_dir == 'asc' else 'asc' -%}
-                <a href="{{ url_for('items.list_items', sort=col_key, dir=next_dir) }}"
-                   class="text-decoration-none text-reset">
+                {%- set next_desc = '0' -%}
+                {%- if is_active and not sort_desc -%}
+                  {%- set next_desc = '1' -%}
+                {%- elif not is_active and sort_desc -%}
+                  {%- set next_desc = '1' -%}
+                {%- endif -%}
+                <a href="{{ url_for('items.list_items', sort=col_key, desc=next_desc) }}"
+                  class="text-decoration-none text-reset">
                   {{ label }}
                   {% if is_active %}
-                    <i class="bi bi-caret-{% if sort_dir == 'asc' %}up{% else %}down{% endif %}-fill small"></i>
+                    <i class="bi bi-caret-{% if sort_desc %}down{% else %}up{% endif %}-fill small"></i>
                   {% endif %}
                 </a>
               {%- endmacro %}
 
-              <th>{{ sort_link('Added at', 'added_at') }}</th>
+              <th>{{ sort_link('Created at', 'created_at') }}</th>
               <th>{{ sort_link('Name', 'name') }}</th>
               <th>{{ sort_link('Product ID', 'product_id') }}</th>
               <th>{{ sort_link('Stores', 'stores') }}</th>
               <th>{{ sort_link('Active', 'active') }}</th>
               <th>{{ sort_link('Last stock', 'last_stock') }}</th>
               <th>{{ sort_link('Last checked', 'last_checked') }}</th>
+              <th>Tags</th>
 
               {% if current_user.is_admin %}
               <th>{{ sort_link('Owner', 'owner') }}</th>
@@ -310,8 +344,8 @@
                 </td>
 
                 <td class="text-muted small">
-                  {% if item.added_at %}
-                    {{ item.added_at.strftime('%Y-%m-%d %H:%M') }}
+                  {% if item.created_at %}
+                    {{ item.created_at.strftime('%Y-%m-%d %H:%M') }}
                   {% endif %}
                 </td>
 
@@ -353,6 +387,11 @@
                   {% else %}
                     never
                   {% endif %}
+                </td>
+                <td>
+                  {% for tag in item.tags %}
+                    <span class="chip">{{ tag.name }}</span>
+                  {% endfor %}
                 </td>
 
                 {% if current_user.is_admin %}

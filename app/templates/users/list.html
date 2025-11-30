@@ -28,7 +28,7 @@
           <td class="text-end">
             <a href="{{ url_for('users.edit_user', user_id=user.id) }}"
                class="btn btn-sm btn-outline-secondary">Edit</a>
-            {% if user.username != 'admin' %}
+            {% if user.role != 'admin' %}
             <form method="post" class="d-inline"
                   action="{{ url_for('users.delete_user', user_id=user.id) }}"
                   onsubmit="return confirm('Delete this user?');">

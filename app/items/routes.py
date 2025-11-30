@@ -28,6 +28,8 @@ from ..ikea_service import (
     get_stores_for_country,
     get_live_availability_for_item,
 )
+from collections import Counter
+
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
@@ -226,7 +228,7 @@ def _cast_int(val: str | None) -> int | None:
 def list_items():
     """
     List items for the current user. Admins see all items but can filter.
-    Provides search, sorting, and folder grouping.
+    Provides search, sorting, folder grouping, and tag filtering.
     """
     query = Item.query
 
@@ -254,22 +256,47 @@ def list_items():
     elif status_filter == "inactive":
         query = query.filter_by(is_active=False)
 
+    # --- NEW: tag filter -------------------------------------------
+    tag_filter = request.args.get("tag", "").strip()
+    if tag_filter:
+        # Only keep items that have this tag
+        query = query.join(Item.tags).filter(Tag.name == tag_filter)
+
+    # --- Sorting ----------------------------------------------------
     sort_by = request.args.get("sort", "name")
     sort_desc = request.args.get("desc", "0") == "1"
 
     sort_column = Item.name
-    if sort_by == "created":
+    if sort_by == "created_at":
         sort_column = Item.created_at
     elif sort_by == "last_checked":
         sort_column = Item.last_checked
-    elif sort_by == "stock":
+    elif sort_by == "last_stock":
         sort_column = Item.last_stock
+    elif sort_by == "active":
+        sort_column = Item.is_active
 
     if sort_desc:
         sort_column = sort_column.desc()
 
     # We still group by folder in Python; tags are loaded via selectin.
     items = query.order_by(sort_column).all()
+
+    # --- NEW: build tag ribbon data from the visible items ---------
+    tag_counter: Counter[str] = Counter()
+    for item in items:
+        # item.tags is a list of Tag objects
+        for t in (item.tags or []):
+            if t and t.name:
+                tag_counter[t.name] += 1
+
+    tag_ribbon_tags = [
+        {"name": name, "count": count}
+        for name, count in sorted(
+            tag_counter.items(),
+            key=lambda kv: (-kv[1], kv[0].lower()),
+        )
+    ][:20]  # cap to top 20 tags
 
     # Group by folder name (None => "Uncategorized")
     folder_groups: Dict[str, List[Item]] = {}
@@ -284,11 +311,13 @@ def list_items():
 
     return render_template(
         "items/list.html",
-        folder_groups=sorted_folder_groups,
+        folders=dict(sorted_folder_groups),
         search=search,
         sort_by=sort_by,
         sort_desc=sort_desc,
         status_filter=status_filter,
+        tag_filter=tag_filter,                 # NEW
+        tag_ribbon_tags=tag_ribbon_tags,       # NEW
     )
 
 
@@ -456,8 +485,10 @@ def edit_item(item_id: int):
 
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])
 @login_required
-@csrf.exempt  # CSRF handled via hidden token already
-def delete_item(item_id: int):
+def delete_item(item_id):
+    if not _require_edit_permission():
+        return redirect(url_for("items.list_items"))
+
     item = Item.query.get_or_404(item_id)
 
     if not _require_edit_permission(item):
@@ -621,19 +652,20 @@ def detail(item_id: int):
         return redirect(url_for("items.list_items"))
 
     # History range selection
-    range_str = request.args.get("range", "30")
-    try:
-        days = int(range_str)
-    except ValueError:
-        days = 30
+    RANGES = {
+        "24h": 1,
+        "7d": 7,
+        "30d": 30,
+        "all": None,
+    }
+    range_key = request.args.get("range", "30d")
+    days = RANGES.get(range_key, 30)
+    query = AvailabilitySnapshot.query.filter_by(item_id=item.id)
+    if days is not None:
+        since = datetime.utcnow() - timedelta(days=days)
+        query = query.filter(AvailabilitySnapshot.timestamp >= since)
 
-    since = datetime.utcnow() - timedelta(days=days)
-    history = (
-        AvailabilitySnapshot.query.filter_by(item_id=item.id)
-        .filter(AvailabilitySnapshot.timestamp >= since)
-        .order_by(AvailabilitySnapshot.timestamp.asc())
-        .all()
-    )
+    history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
 
     labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in history]
     stocks = [h.total_stock if h.total_stock is not None else 0 for h in history]
@@ -655,7 +687,6 @@ def detail(item_id: int):
         history=history,
         chart_labels=chart_labels,
         chart_datasets=chart_datasets,
-        range_days=days,
         live_data=live_data,
         live_error=live_error,
     )
@@ -846,6 +877,7 @@ def export_items():
             "last_probability",
             "last_checked",
             "tags",
+            "created_at",
         ],
     )
     writer.writeheader()
@@ -867,7 +899,8 @@ def export_items():
                 "notify_enabled": "1" if it.notify_enabled else "0",
                 "last_stock": it.last_stock if it.last_stock is not None else "",
                 "last_probability": it.last_probability or "",
-                "last_checked": it.last_checked.isoformat()
+                "last_checked": it.last_checked.isoformat(),
+                "created_at": it.created_at.isoformat()
                 if it.last_checked
                 else "",
                 "tags": tags_str,

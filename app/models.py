@@ -1,3 +1,4 @@
+# app/models.py
 from datetime import datetime
 import os
 import secrets
@@ -18,10 +19,10 @@ class User(UserMixin, db.Model):
 
     items = db.relationship("Item", backref="user", lazy="dynamic")
 
-    # New: tags owned by this user
+    # Tags owned by this user
     tags = db.relationship(
         "Tag",
-        backref="user",
+        back_populates="user",
         lazy="dynamic",
         cascade="all, delete-orphan",
     )
@@ -71,9 +72,17 @@ class Tag(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     name = db.Column(db.String(64), nullable=False)
 
-    user = db.relationship("User", backref="tags")
+    # NEW: timestamp to match DB schema (NOT NULL)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # Link back to owner user
+    user = db.relationship("User", back_populates="tags")
+
+    # Items having this tag
     items = db.relationship(
-        "Item", secondary="item_tags", back_populates="tags"
+        "Item",
+        secondary="item_tags",
+        back_populates="tags",
     )
 
     __table_args__ = (
@@ -111,20 +120,25 @@ class Item(db.Model):
     notify_enabled = db.Column(db.Boolean, default=False, nullable=False)
     last_notified_at = db.Column(db.DateTime, nullable=True)
 
+    # New: explicit created/updated timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
-        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
     )
 
     folder_id = db.Column(db.Integer, db.ForeignKey("folders.id"), nullable=True)
     folder = db.relationship("Folder", backref="items")
 
+    # Many-to-many tags
     tags = db.relationship(
-    "Tag",
-    secondary="item_tags",
-    back_populates="items",
-    lazy="joined",
-)
+        "Tag",
+        secondary="item_tags",
+        back_populates="items",
+        lazy="joined",
+    )
 
     def __repr__(self):
         return (
@@ -154,6 +168,8 @@ def create_default_admin():
     Security: generates a random password, prints it to console.
     This is intended for first-time setup only.
     """
+    from .models import User  # avoid circular import at module import time
+
     if User.query.count() > 0:
         return
 
