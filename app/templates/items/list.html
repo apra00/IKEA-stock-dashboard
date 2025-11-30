@@ -163,6 +163,34 @@
 
 {% set total_cols = (13 if current_user.is_admin else 12) %}
 
+{# --- TAG RIBBON (NEW) ------------------------------------------ #}
+{% if tag_ribbon_tags %}
+  <div class="mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <div class="small text-muted me-1">Filter by tag:</div>
+
+      {# "All" reset chip #}
+      <a href="{{ url_for('items.list_items') }}"
+         class="chip text-decoration-none {% if not tag_filter %}fw-semibold{% endif %}">
+        All
+      </a>
+
+      {# individual tag chips #}
+      {% for tag in tag_ribbon_tags %}
+        <a href="{{ url_for('items.list_items', tag=tag.name) }}"
+           class="chip text-decoration-none
+                  {% if tag_filter == tag.name %}bg-primary text-white border-0{% endif %}">
+          <span>{{ tag.name }}</span>
+          <span class="badge rounded-pill bg-light text-muted border">
+            {{ tag.count }}
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+{# --- END TAG RIBBON -------------------------------------------- #}
+
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <form method="post" action="{{ url_for('items.bulk_edit') }}" id="bulk-form">

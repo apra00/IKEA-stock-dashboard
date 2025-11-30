@@ -28,6 +28,8 @@ from ..ikea_service import (
     get_stores_for_country,
     get_live_availability_for_item,
 )
+from collections import Counter
+
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
@@ -226,7 +228,7 @@ def _cast_int(val: str | None) -> int | None:
 def list_items():
     """
     List items for the current user. Admins see all items but can filter.
-    Provides search, sorting, and folder grouping.
+    Provides search, sorting, folder grouping, and tag filtering.
     """
     query = Item.query
 
@@ -254,6 +256,13 @@ def list_items():
     elif status_filter == "inactive":
         query = query.filter_by(is_active=False)
 
+    # --- NEW: tag filter -------------------------------------------
+    tag_filter = request.args.get("tag", "").strip()
+    if tag_filter:
+        # Only keep items that have this tag
+        query = query.join(Item.tags).filter(Tag.name == tag_filter)
+
+    # --- Sorting ----------------------------------------------------
     sort_by = request.args.get("sort", "name")
     sort_desc = request.args.get("desc", "0") == "1"
 
@@ -273,6 +282,22 @@ def list_items():
     # We still group by folder in Python; tags are loaded via selectin.
     items = query.order_by(sort_column).all()
 
+    # --- NEW: build tag ribbon data from the visible items ---------
+    tag_counter: Counter[str] = Counter()
+    for item in items:
+        # item.tags is a list of Tag objects
+        for t in (item.tags or []):
+            if t and t.name:
+                tag_counter[t.name] += 1
+
+    tag_ribbon_tags = [
+        {"name": name, "count": count}
+        for name, count in sorted(
+            tag_counter.items(),
+            key=lambda kv: (-kv[1], kv[0].lower()),
+        )
+    ][:20]  # cap to top 20 tags
+
     # Group by folder name (None => "Uncategorized")
     folder_groups: Dict[str, List[Item]] = {}
     for item in items:
@@ -291,6 +316,8 @@ def list_items():
         sort_by=sort_by,
         sort_desc=sort_desc,
         status_filter=status_filter,
+        tag_filter=tag_filter,                 # NEW
+        tag_ribbon_tags=tag_ribbon_tags,       # NEW
     )
 
 
