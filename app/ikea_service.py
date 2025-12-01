@@ -107,7 +107,7 @@ def parse_availability_summary(data: list) -> Tuple[int, str]:
 
 
 def _send_threshold_notification(
-    item: Item, total_stock: int, prob_str: str, timestamp: datetime
+    item: Item, total_stock: int, prob_str: str, timestamp: datetime, direction: str
 ):
     """
     Send email notification when an item's stock crosses the configured threshold.
@@ -131,18 +131,33 @@ def _send_threshold_notification(
     if not recipients:
         return
 
-    subject = f"IKEA stock alert: {item.name} ({item.product_id})"
-    body = (
-        f"Stock for item '{item.name}' (product {item.product_id}) "
-        f"has reached {total_stock}.\n\n"
-        f"Owner: {item.user.username if item.user else 'Unknown'}\n"
-        f"Folder: {item.folder.name if item.folder else 'None'}\n"
-        f"Country: {item.country_code}\n"
-        f"Stores filter: {item.store_ids or 'All stores in country'}\n"
-        f"Probability summary: {prob_str}\n"
-        f"Time (UTC): {timestamp:%Y-%m-%d %H:%M}\n"
-        f"Threshold: {item.notify_threshold}\n"
-    )
+    if direction == 'above':
+        subject = f"IKEA stock above alert: {item.name} ({item.product_id})"
+        body = (
+            f"Stock for item '{item.name}' (product {item.product_id}) "
+            f"has went above {item.notify_threshold} and now is at {total_stock}.\n\n"
+            f"Owner: {item.user.username if item.user else 'Unknown'}\n"
+            f"Folder: {item.folder.name if item.folder else 'None'}\n"
+            f"Country: {item.country_code}\n"
+            f"Stores filter: {item.store_ids or 'All stores in country'}\n"
+            f"Probability summary: {prob_str}\n"
+            f"Time (UTC): {timestamp:%Y-%m-%d %H:%M}\n"
+            f"Threshold: {item.notify_threshold}\n"
+        )
+    
+    if direction == 'bellow':
+        subject = f"IKEA stock bellow alert: {item.name} ({item.product_id})"
+        body = (
+            f"Stock for item '{item.name}' (product {item.product_id}) "
+            f"has went bellow {item.notify_threshold} and now is at {total_stock}.\n\n"
+            f"Owner: {item.user.username if item.user else 'Unknown'}\n"
+            f"Folder: {item.folder.name if item.folder else 'None'}\n"
+            f"Country: {item.country_code}\n"
+            f"Stores filter: {item.store_ids or 'All stores in country'}\n"
+            f"Probability summary: {prob_str}\n"
+            f"Time (UTC): {timestamp:%Y-%m-%d %H:%M}\n"
+            f"Threshold: {item.notify_threshold}\n"
+        )
 
     send_email(subject, body, list(recipients))
 
@@ -195,7 +210,7 @@ def check_item(item: Item):
     item.last_probability = prob_str
     item.last_checked = timestamp
 
-    # Threshold notification check: from below to >= threshold
+    # Threshold notification check for above
     should_notify = (
         item.notify_enabled
         and item.notify_threshold is not None
@@ -205,7 +220,20 @@ def check_item(item: Item):
         was_below = previous_stock is None or previous_stock < item.notify_threshold
         now_above = total_stock >= item.notify_threshold
         if was_below and now_above:
-            _send_threshold_notification(item, total_stock, prob_str, timestamp)
+            _send_threshold_notification(item, total_stock, prob_str, timestamp, 'above')
+            item.last_notified_at = timestamp
+    
+    # Threshold notification check for bellow
+    should_notify = (
+        item.notify_bellow_enabled
+        and item.notify_bellow_threshold is not None
+        and total_stock is not None
+    )
+    if should_notify:
+        was_above = previous_stock is None or previous_stock < item.notify_bellow_threshold
+        now_bellow = total_stock < item.notify_bellow_threshold
+        if was_above and now_bellow:
+            _send_threshold_notification(item, total_stock, prob_str, timestamp, 'bellow')
             item.last_notified_at = timestamp
 
     db.session.commit()

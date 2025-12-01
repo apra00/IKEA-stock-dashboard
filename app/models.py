@@ -115,10 +115,14 @@ class Item(db.Model):
     last_probability = db.Column(db.String(255), nullable=True)
     last_checked = db.Column(db.DateTime, nullable=True)
 
-    # Threshold notification config
+    # Threshold above (default) notification config
     notify_threshold = db.Column(db.Integer, nullable=True)  # total stock threshold
     notify_enabled = db.Column(db.Boolean, default=False, nullable=False)
     last_notified_at = db.Column(db.DateTime, nullable=True)
+    # Threshold bellow notification config
+    notify_bellow_threshold = db.Column(db.Integer, nullable=True)  # total stock threshold
+    notify_bellow_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    last_notified_bellow_at = db.Column(db.DateTime, nullable=True)
 
     # New: explicit created/updated timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
