@@ -149,7 +149,7 @@ def _send_threshold_notification(
         subject = f"IKEA stock bellow alert: {item.name} ({item.product_id})"
         body = (
             f"Stock for item '{item.name}' (product {item.product_id}) "
-            f"has went bellow {item.notify_threshold} and now is at {total_stock}.\n\n"
+            f"has went bellow {item.notify_bellow_threshold} and now is at {total_stock}.\n\n"
             f"Owner: {item.user.username if item.user else 'Unknown'}\n"
             f"Folder: {item.folder.name if item.folder else 'None'}\n"
             f"Country: {item.country_code}\n"
@@ -234,7 +234,7 @@ def check_item(item: Item):
         now_bellow = total_stock < item.notify_bellow_threshold
         if was_above and now_bellow:
             _send_threshold_notification(item, total_stock, prob_str, timestamp, 'bellow')
-            item.last_notified_at = timestamp
+            item.last_notified_bellow_at = timestamp
 
     db.session.commit()
     return True, None
