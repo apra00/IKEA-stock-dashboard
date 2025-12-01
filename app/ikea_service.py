@@ -230,7 +230,7 @@ def check_item(item: Item):
         and total_stock is not None
     )
     if should_notify:
-        was_above = previous_stock is None or previous_stock > item.notify_bellow_threshold
+        was_above = previous_stock is None or previous_stock >= item.notify_bellow_threshold
         now_bellow = total_stock < item.notify_bellow_threshold
         if was_above and now_bellow:
             _send_threshold_notification(item, total_stock, prob_str, timestamp, 'bellow')
