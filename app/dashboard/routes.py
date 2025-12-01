@@ -128,6 +128,7 @@ def index():
     unknown_stock_items = total_items - in_stock_items - out_of_stock_items
 
     notify_enabled_items = item_query.filter_by(notify_enabled=True).count()
+    notify_bellow_enabled_items = item_query.filter_by(notify_bellow_enabled=True).count()
 
     # --- Last check + latest activity -------------------------------
     snap_query = AvailabilitySnapshot.query.join(Item)
@@ -214,6 +215,7 @@ def index():
         out_of_stock_items=out_of_stock_items,
         unknown_stock_items=unknown_stock_items,
         notify_enabled_items=notify_enabled_items,
+        notify_bellow_enabled_items=notify_bellow_enabled_items,
         last_check=last_check,
         last_check_ago=last_check_ago,
         latest_snapshots=latest_snapshots,

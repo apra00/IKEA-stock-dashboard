@@ -80,7 +80,8 @@
       <div class="mt-2 d-flex flex-wrap gap-2">
         <span class="chip">Total: {{ total_items }}</span>
         <span class="chip">Active: {{ active_items }}</span>
-        <span class="chip">Notify enabled: {{ notify_enabled_items }}</span>
+        <span class="chip">Notify above: {{ notify_enabled_items }}</span>
+        <span class="chip">Notify below: {{ notify_bellow_enabled_items }}</span>
       </div>
     </div>
 
@@ -146,14 +147,15 @@
       <div class="d-flex justify-content-between">
         <div>
           <div class="text-muted small">Notifications</div>
-          <div class="fs-2 fw-bold">{{ notify_enabled_items }}</div>
+          {% set total_notifications = notify_enabled_items + notify_bellow_enabled_items %}
+          <div class="fs-2 fw-bold">{{ total_notifications }}</div>
         </div>
         <div class="stat-icon" style="background:#fff4e6;color:#fd7e14;">
           <i class="bi bi-bell"></i>
         </div>
       </div>
       <div class="small text-muted mt-2">
-        Items with thresholds enabled
+        Above: {{ notify_enabled_items }} · Below: {{ notify_bellow_enabled_items }}
       </div>
     </div>
   </div>

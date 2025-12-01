@@ -115,10 +115,17 @@
       <div class="card-body">
         <div class="stat-label">Notification</div>
         <div class="stat-value-sm">
-          {% if item.notify_enabled and item.notify_threshold is not none %}
-            Enabled (≥ {{ item.notify_threshold }})
+          {% set above_on = item.notify_enabled and item.notify_threshold is not none %}
+          {% set below_on = item.notify_bellow_enabled and item.notify_bellow_threshold is not none %}
+          {% if above_on or below_on %}
+            {% if above_on %}
+              <div>Above: ≥ {{ item.notify_threshold }}</div>
+            {% endif %}
+            {% if below_on %}
+              <div>Below: &lt; {{ item.notify_bellow_threshold }}</div>
+            {% endif %}
           {% else %}
-            Disabled
+            <span class="text-muted">Disabled</span>
           {% endif %}
         </div>
       </div>

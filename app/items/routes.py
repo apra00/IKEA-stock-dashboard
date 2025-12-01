@@ -345,6 +345,9 @@ def add_item():
 
         notify_threshold_raw = request.form.get("notify_threshold", "").strip()
         notify_enabled = bool(request.form.get("notify_enabled"))
+        
+        notify_bellow_threshold_raw = request.form.get("notify_bellow_threshold", "").strip()
+        notify_bellow_enabled = bool(request.form.get("notify_bellow_enabled"))
 
         # Tags: free-form comma-separated
         tags_raw = request.form.get("tags", "") or ""
@@ -364,7 +367,20 @@ def add_item():
             try:
                 notify_threshold = int(notify_threshold_raw)
             except ValueError:
-                flash("Notification threshold must be an integer.", "danger")
+                flash("Notification above threshold must be an integer.", "danger")
+                return render_template(
+                    "items/form.html",
+                    item=None,
+                    categories=categories,
+                    default_country_code=default_country,
+                )
+        
+        notify_bellow_threshold = None
+        if notify_bellow_threshold_raw:
+            try:
+                notify_bellow_threshold = int(notify_bellow_threshold_raw)
+            except ValueError:
+                flash("Notification bellow threshold must be an integer.", "danger")
                 return render_template(
                     "items/form.html",
                     item=None,
@@ -384,6 +400,8 @@ def add_item():
             folder=folder,
             notify_threshold=notify_threshold,
             notify_enabled=notify_enabled,
+            notify_bellow_threshold=notify_bellow_threshold,
+            notify_bellow_enabled=notify_bellow_enabled,
         )
 
         # Attach tags, if any
@@ -427,6 +445,9 @@ def edit_item(item_id: int):
         notify_threshold_raw = request.form.get("notify_threshold", "").strip()
         notify_enabled = bool(request.form.get("notify_enabled"))
 
+        notify_bellow_threshold_raw = request.form.get("notify_bellow_threshold", "").strip()
+        notify_bellow_enabled = bool(request.form.get("notify_bellow_enabled"))
+
         tags_raw = request.form.get("tags", "") or ""
 
         if not name or not product_id or not country_code:
@@ -443,7 +464,20 @@ def edit_item(item_id: int):
             try:
                 notify_threshold = int(notify_threshold_raw)
             except ValueError:
-                flash("Notification threshold must be an integer.", "danger")
+                flash("Notification above threshold must be an integer.", "danger")
+                return render_template(
+                    "items/form.html",
+                    item=item,
+                    categories=categories,
+                    default_country_code=item.country_code,
+                )
+        
+        notify_bellow_threshold = None
+        if notify_bellow_threshold_raw:
+            try:
+                notify_bellow_threshold = int(notify_bellow_threshold_raw)
+            except ValueError:
+                flash("Notification bellow threshold must be an integer.", "danger")
                 return render_template(
                     "items/form.html",
                     item=item,
@@ -459,6 +493,9 @@ def edit_item(item_id: int):
 
         item.notify_threshold = notify_threshold
         item.notify_enabled = notify_enabled
+
+        item.notify_bellow_threshold = notify_bellow_threshold
+        item.notify_bellow_enabled = notify_bellow_enabled
 
         # Folder
         folder = _get_or_create_folder_for_user(item.user_id, folder_name)
@@ -598,6 +635,10 @@ def bulk_edit_submit():
     notify_enabled_raw = request.form.get("notify_enabled")
     notify_enabled_value = _cast_bool(notify_enabled_raw)
 
+    notify_bellow_threshold_raw = request.form.get("notify_bellow_threshold", "").strip()
+    notify_bellow_enabled_raw = request.form.get("notify_bellow_enabled")
+    notify_bellow_enabled_value = _cast_bool(notify_bellow_enabled_raw)
+
     # Tags: if the field is left completely empty, we keep existing tags.
     # If filled with text (even just commas) we overwrite for all selected items.
     tags_raw = request.form.get("tags", None)
@@ -611,6 +652,7 @@ def bulk_edit_submit():
             tag_names_for_bulk = _parse_tag_names(tags_raw)
 
     notify_threshold = _cast_int(notify_threshold_raw)
+    notify_bellow_threshold = _cast_int(notify_bellow_threshold_raw)
 
     for it in items:
         if active_value is not None:
@@ -626,6 +668,11 @@ def bulk_edit_submit():
             it.notify_threshold = notify_threshold
         if notify_enabled_value is not None:
             it.notify_enabled = notify_enabled_value
+        
+        if notify_bellow_threshold_raw != "":
+            it.notify_bellow_threshold = notify_bellow_threshold
+        if notify_bellow_enabled_value is not None:
+            it.notify_bellow_enabled = notify_bellow_enabled_value
 
         # Apply tags if requested
         if tag_names_for_bulk is not None:
@@ -770,6 +817,8 @@ def import_submit():
     map_store_ids = request.form.get("map_store_ids")
     map_active = request.form.get("map_active")
     map_notify_threshold = request.form.get("map_notify_threshold")
+    map_notify_bellow_threshold = request.form.get("map_notify_bellow_threshold")
+    
 
     folder_mode = request.form.get("folder_mode", "none")
     existing_folder = request.form.get("existing_folder")
@@ -816,6 +865,17 @@ def import_submit():
                     notify_enabled = True
                 except ValueError:
                     pass
+        
+        notify_bellow_threshold = None
+        notify_bellow_enabled = False
+        if map_notify_bellow_threshold:
+            thr_raw = str(row.get(map_notify_bellow_threshold, "")).strip()
+            if thr_raw:
+                try:
+                    notify_bellow_threshold = int(thr_raw)
+                    notify_bellow_enabled = True
+                except ValueError:
+                    pass
 
         item = Item(
             user_id=current_user.id,
@@ -827,6 +887,8 @@ def import_submit():
             folder=folder,
             notify_threshold=notify_threshold,
             notify_enabled=notify_enabled,
+            notify_bellow_threshold=notify_bellow_threshold,
+            notify_bellow_enabled=notify_bellow_enabled,
         )
         db.session.add(item)
         created_count += 1
@@ -873,6 +935,8 @@ def export_items():
             "folder",
             "notify_threshold",
             "notify_enabled",
+            "notify_bellow_threshold",
+            "notify_bellow_enabled",
             "last_stock",
             "last_probability",
             "last_checked",
@@ -897,6 +961,10 @@ def export_items():
                 if it.notify_threshold is not None
                 else "",
                 "notify_enabled": "1" if it.notify_enabled else "0",
+                "notify_bellow_threshold": it.notify_bellow_threshold
+                if it.notify_bellow_threshold is not None
+                else "",
+                "notify_bellow_enabled": "1" if it.notify_bellow_enabled else "0",
                 "last_stock": it.last_stock if it.last_stock is not None else "",
                 "last_probability": it.last_probability or "",
                 "last_checked": it.last_checked.isoformat(),

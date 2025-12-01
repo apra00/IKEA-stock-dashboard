@@ -322,9 +322,17 @@
                         Active:
                         {{ folder_items|selectattr('is_active')|list|length }}
                       </span>
+                      {% set folder_above = folder_items
+                          |selectattr('notify_enabled')
+                          |selectattr('notify_threshold', 'ne', none)
+                          |list %}
+                      {% set folder_below = folder_items
+                          |selectattr('notify_bellow_enabled')
+                          |selectattr('notify_bellow_threshold', 'ne', none)
+                          |list %}
                       <span>
                         Notifs:
-                        {{ folder_items|selectattr('notify_enabled')|list|length }}
+                        {{ folder_above|length }} ↑ / {{ folder_below|length }} ↓
                       </span>
                     </div>
                   </div>
@@ -354,9 +362,15 @@
                      href="{{ url_for('items.detail', item_id=item.id) }}">
                     {{ item.name }}
                   </a>
-                  {% if item.notify_enabled and item.notify_threshold is not none %}
+                  {% set above_on = item.notify_enabled and item.notify_threshold is not none %}
+                  {% set below_on = item.notify_bellow_enabled and item.notify_bellow_threshold is not none %}
+                  {% if above_on or below_on %}
                     <span class="badge bg-warning text-dark ms-1">
-                      notify ≥ {{ item.notify_threshold }}
+                      {% if above_on %}↑ ≥ {{ item.notify_threshold }}{% endif %}
+                      {% if below_on %}
+                        {% if above_on %} · {% endif %}
+                        ↓ &lt; {{ item.notify_bellow_threshold }}
+                      {% endif %}
                     </span>
                   {% endif %}
                 </td>

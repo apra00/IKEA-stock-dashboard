@@ -110,24 +110,64 @@
           <hr class="my-3">
 
           <h6 class="mb-2">Email notifications</h6>
+
           <div class="mb-3">
-            <label class="form-label">Notification threshold (total stock)</label>
-            <input name="notify_threshold"
-                   type="number"
-                   min="0"
-                   class="form-control"
-                   value="{{ item.notify_threshold if item and item.notify_threshold is not none else '' }}"
-                   placeholder="Leave empty to disable threshold notifications">
+            <label class="form-label">Notify when stock goes above or equal to…</label>
+            <div class="row g-2 align-items-center">
+              <div class="col-6 col-md-4">
+                <input name="notify_threshold"
+                       type="number"
+                       min="0"
+                       class="form-control"
+                       value="{{ item.notify_threshold if item and item.notify_threshold is not none else '' }}"
+                       placeholder="Leave empty to disable &quot;above&quot; notifications">
+              </div>
+              <div class="col-auto">
+                <div class="form-check mb-0">
+                  <input class="form-check-input"
+                         type="checkbox"
+                         id="notify_enabled"
+                         name="notify_enabled"
+                         {% if item and item.notify_enabled %}checked{% endif %}>
+                  <label class="form-check-label" for="notify_enabled">
+                    Enable above-threshold alerts
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="form-text">
+              Alert is sent when total stock crosses from below to at/above the threshold.
+            </div>
           </div>
 
-          <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="notify_enabled" name="notify_enabled"
-                   {% if item and item.notify_enabled %}checked{% endif %}>
-            <label class="form-check-label" for="notify_enabled">
-              Enable notifications when stock crosses the threshold.
-            </label>
+          <div class="mb-3">
+            <label class="form-label">Notify when stock goes below…</label>
+            <div class="row g-2 align-items-center">
+              <div class="col-6 col-md-4">
+                <input name="notify_bellow_threshold"
+                       type="number"
+                       min="0"
+                       class="form-control"
+                       value="{{ item.notify_bellow_threshold if item and item.notify_bellow_threshold is not none else '' }}"
+                       placeholder="Leave empty to disable &quot;below&quot; notifications">
+              </div>
+              <div class="col-auto">
+                <div class="form-check mb-0">
+                  <input class="form-check-input"
+                         type="checkbox"
+                         id="notify_bellow_enabled"
+                         name="notify_bellow_enabled"
+                         {% if item and item.notify_bellow_enabled %}checked{% endif %}>
+                  <label class="form-check-label" for="notify_bellow_enabled">
+                    Enable below-threshold alerts
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="form-text">
+              Alert is sent when total stock crosses from at/above to below the threshold.
+            </div>
           </div>
-
           <button class="btn btn-primary" type="submit">Save</button>
           <a class="btn btn-secondary" href="{{ url_for('items.list_items') }}">Cancel</a>
         </form>
