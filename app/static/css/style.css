@@ -1,23 +1,73 @@
+:root {
+  /* ---- Theme tokens (light by default) -------------------------- */
+  --bg-body: #f4f5f7;
+  --surface-default: #ffffff;
+  --surface-muted: #f7f9fc;
+  --border-soft: #e5e7eb;
+
+  --text-main: #111827;
+  --text-muted: #6b7280;
+
+  --brand-primary: #6e0000;
+  --brand-primary-hover: #580000;
+
+  --shadow-soft: 0 4px 16px rgba(15, 23, 42, 0.08);
+
+  /* Bridge into Bootstrap’s CSS variables so components pick up the theme */
+  --bs-body-bg: var(--bg-body);
+  --bs-body-color: var(--text-main);
+  --bs-border-color: var(--border-soft);
+  --bs-card-bg: var(--surface-default);
+  --bs-card-border-color: var(--border-soft);
+  --bs-primary: var(--brand-primary);
+  --bs-link-color: var(--brand-primary);
+  --bs-link-hover-color: var(--brand-primary-hover);
+}
+
+[data-bs-theme="dark"] {
+  color-scheme: dark;
+
+  /* Dark mode colors */
+  --bg-body: #020617;          /* page background - very dark navy */
+  --surface-default: #0f172a;  /* main card background - lighter */
+  --surface-muted: #1e293b;    /* gradient highlight / subtle contrast */
+  --border-soft: #1f2937;
+
+  --text-main: #e5e7eb;
+  --text-muted: #b9b9b9;
+ 
+  --shadow-soft: 0 20px 45px rgba(0, 0, 0, 0.7);
+
+  --bs-body-bg: var(--bg-body);
+  --bs-body-color: var(--text-main);
+  --bs-border-color: var(--border-soft);
+  --bs-card-bg: var(--surface-default);
+  --bs-card-border-color: var(--border-soft);
+  --bs-link-color: #93c5fd;
+  --bs-link-hover-color: #bfdbfe;
+}
+
 body {
-  background: #f4f5f7;
+  background: var(--bg-body);
+  color: var(--text-main);
 }
 
 .custom-navbar {
-    background-color: #6e0000 !important;
+  background-color: var(--brand-primary) !important;
 }
 
 .stat-card {
-  border: none;
+  border: 1px solid var(--border-soft);
   border-radius: 12px;
-  background: linear-gradient(135deg, #ffffff, #f7f9fc);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  background: linear-gradient(135deg, var(--surface-default), var(--surface-muted));
+  box-shadow: var(--shadow-soft);
 }
 
 .stat-label {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: .08em;
-  color: #6c757d;
+  color: var(--text-muted);
 }
 
 .stat-value {
@@ -38,15 +88,66 @@ body {
   vertical-align: middle;
 }
 
-.btn {
-    background-color: #6e0000 !important;
-    border-color: #6e0000 !important;
-    color: #fff !important;
+.table thead th {
+  background-color: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
 }
 
-.btn:hover,
-.btn:focus,
-.btn:active {
-    background-color: #580000 !important;
-    border-color: #580000 !important;
+.table-light {
+  --bs-table-bg: var(--surface-muted);
+  --bs-table-border-color: var(--border-soft);
+  --bs-table-color: var(--text-main);
+}
+
+/* Soft section / card headers that work in both themes */
+.table-header-soft {
+  background: linear-gradient(180deg, var(--surface-default), var(--surface-muted));
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-main);
+}
+
+.card-header.table-header-soft {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+/* Brand button styling – only for primary buttons */
+.btn-primary {
+  background-color: var(--brand-primary) !important;
+  border-color: var(--brand-primary) !important;
+  color: #fff !important;
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+  background-color: var(--brand-primary-hover) !important;
+  border-color: var(--brand-primary-hover) !important;
+}
+
+.btn-primary:focus-visible {
+  box-shadow: 0 0 0 0.25rem rgba(110, 0, 0, 0.35);
+}
+
+.chip .badge {
+  background-color: rgba(15, 23, 42, 0.04);
+  border-color: var(--border-soft);
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0.05rem 0.5rem;
+}
+
+/* Dark mode variant */
+[data-bs-theme="dark"] .chip .badge {
+  background-color: rgba(15, 23, 42, 0.65);
+  border-color: rgba(148, 163, 184, 0.6);
+  color: #222222;
+}
+
+/* When a chip is “active” (bg-primary), keep badge high-contrast */
+.chip.bg-primary .badge,
+[data-bs-theme="dark"] .chip.bg-primary .badge {
+  background-color: rgba(15, 23, 42, 0.15);
+  border-color: transparent;
+  color: #000000;
 }

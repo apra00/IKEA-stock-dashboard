@@ -4,35 +4,44 @@
 {% block head_extra %}
 <style>
   .dash-hero {
-    background: radial-gradient(1200px circle at 0% 0%, #0d6efd15, transparent 40%),
-                radial-gradient(1200px circle at 100% 0%, #20c99718, transparent 40%),
-                linear-gradient(180deg, #ffffff, #f7f9fc);
-    border: 1px solid #e9eef5;
+    background:
+      radial-gradient(1200px circle at 0% 0%, rgba(13, 110, 253, 0.12), transparent 40%),
+      radial-gradient(1200px circle at 100% 0%, rgba(32, 201, 151, 0.12), transparent 40%),
+      linear-gradient(180deg, var(--surface-default), var(--surface-muted));
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-soft);
   }
+
   .stat-tile {
-    border: 1px solid #eef2f7;
-    background: #fff;
+    border: 1px solid var(--border-soft);
+    background: var(--surface-default);
     transition: transform .08s ease, box-shadow .08s ease;
+    box-shadow: var(--shadow-soft);
   }
+
   .stat-tile:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(13, 110, 253, .08);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.35);
   }
+
   .stat-icon {
-    width: 44px; height: 44px;
+    width: 44px;
+    height: 44px;
     border-radius: 12px;
-    display:grid; place-items:center;
-    background: #f1f5ff;
+    display: grid;
+    place-items: center;
+    background: rgba(13, 110, 253, 0.1);
     color: #0d6efd;
     font-size: 1.25rem;
   }
+
   .chip {
-    font-size: .75rem;
+    font-size: 0.75rem;
     border-radius: 999px;
-    padding: .2rem .55rem;
-    background: #f3f5f9;
-    color:#6c757d;
-    border: 1px solid #edf0f5;
+    padding: 0.2rem 0.55rem;
+    background: var(--surface-muted);
+    color: var(--text-muted);
+    border: 1px solid var(--border-soft);
   }
   .list-compact .list-group-item {
     padding: .65rem .9rem;
@@ -56,6 +65,20 @@
   .btn-refresh .spinner-border { display: none; }
   .btn-refresh.is-loading .spinner-border { display: inline-block; }
   .btn-refresh.is-loading .btn-label { opacity: .85; }
+
+  [data-bs-theme="dark"] .dash-hero {
+    border-color: rgba(148, 163, 184, 0.45);
+  }
+
+  [data-bs-theme="dark"] .stat-icon {
+    background: rgba(37, 99, 235, 0.32);
+    color: #bfdbfe;
+  }
+
+  [data-bs-theme="dark"] .stat-tile:hover {
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  }
+
 </style>
 {% endblock %}
 
@@ -132,7 +155,7 @@
           <div class="text-muted small">In stock</div>
           <div class="fs-2 fw-bold text-success">{{ in_stock_items }}</div>
         </div>
-        <div class="stat-icon" style="background:#eaf7f0;color:#198754;">
+        <div class="stat-icon">
           <i class="bi bi-check-circle"></i>
         </div>
       </div>
@@ -150,7 +173,7 @@
           {% set total_notifications = notify_enabled_items + notify_bellow_enabled_items %}
           <div class="fs-2 fw-bold">{{ total_notifications }}</div>
         </div>
-        <div class="stat-icon" style="background:#fff4e6;color:#fd7e14;">
+        <div class="stat-icon">
           <i class="bi bi-bell"></i>
         </div>
       </div>
@@ -167,7 +190,7 @@
           <div class="text-muted small">Changed (24h)</div>
           <div class="fs-2 fw-bold text-primary">{{ changed_recently_items|length }}</div>
         </div>
-        <div class="stat-icon" style="background:#eef6ff;color:#0d6efd;">
+        <div class="stat-icon">
           <i class="bi bi-activity"></i>
         </div>
       </div>
@@ -182,7 +205,7 @@
 <div class="row g-3 mb-4">
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3">
+      <div class="card-header bg-white border-0 pt-3 px-3 table-header-soft">
         <div class="d-flex justify-content-between align-items-center">
           <strong>Stock health</strong>
           <small class="text-muted">{{ total_items }} items</small>
@@ -196,7 +219,7 @@
 
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3">
+      <div class="card-header bg-white border-0 pt-3 px-3 table-header-soft">
         <strong>Recently checked</strong>
       </div>
       <div class="card-body p-0">
@@ -240,7 +263,7 @@
 
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3">
+      <div class="card-header bg-white border-0 pt-3 px-3 table-header-soft">
         <strong>Recently created</strong>
       </div>
       <div class="card-body p-0">
@@ -275,7 +298,7 @@
 <div class="row g-3 mb-4">
   <div class="col-lg-4">
     <div class="card shadow-sm rounded-4 h-100">
-      <div class="card-header bg-white border-0 pt-3 px-3 d-flex justify-content-between align-items-center">
+      <div class="card-header bg-white border-0 pt-3 px-3 d-flex justify-content-between align-items-center table-header-soft">
         <strong>Tags</strong>
         {% if top_tags %}
           <small class="text-muted">Top {{ top_tags|length }}</small>
@@ -307,7 +330,7 @@
 
 {% if changed_recently_items %}
 <div class="card shadow-sm rounded-4 mb-4">
-  <div class="card-header bg-white border-0 pt-3 px-3">
+  <div class="card-header bg-white border-0 pt-3 px-3 table-header-soft">
     <strong>🔥 Items that moved in the last 24h</strong>
     <div class="small text-muted">Quick targets to check first.</div>
   </div>
@@ -339,7 +362,7 @@
 {% endif %}
 
 <div class="card shadow-sm rounded-4">
-  <div class="card-header bg-white border-0 pt-3 px-3">
+  <div class="card-header bg-white border-0 pt-3 px-3 table-header-soft">
     <strong>Latest activity</strong>
   </div>
   <div class="card-body p-0">
