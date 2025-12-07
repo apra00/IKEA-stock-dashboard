@@ -4,41 +4,51 @@
 {% block head_extra %}
 <style>
   .items-hero {
-    background: radial-gradient(1200px circle at 0% 0%, #0d6efd10, transparent 40%),
-                radial-gradient(1200px circle at 100% 0%, #20c99715, transparent 40%),
-                linear-gradient(180deg, #ffffff, #f8fafc);
-    border: 1px solid #e5edf6;
+    background:
+      radial-gradient(1200px circle at 0% 0%, rgba(13, 110, 253, 0.08), transparent 40%),
+      radial-gradient(1200px circle at 100% 0%, rgba(32, 201, 151, 0.09), transparent 40%),
+      linear-gradient(180deg, var(--surface-default), var(--surface-muted));
+    border: 1px solid var(--border-soft);
   }
   .items-hero h2 { letter-spacing: .01em; }
+
   .chip {
     font-size: .75rem;
     border-radius: 999px;
     padding: .2rem .6rem;
-    background: #f3f5f9;
-    color:#6c757d;
-    border: 1px solid #e1e5ee;
+    background: var(--surface-muted);
+    color: var(--text-muted);
+    border: 1px solid var(--border-soft);
     display: inline-flex;
     align-items: center;
     gap: .35rem;
     white-space: nowrap;
   }
   .folder-header {
-    background: linear-gradient(90deg, #f3f6ff, #f8fbff);
-    border-top: 1px solid #e0e7f5;
-    border-bottom: 1px solid #e0e7f5;
+    background: linear-gradient(90deg, var(--surface-muted), var(--surface-default));
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
   }
-  .folder-header:hover { background: linear-gradient(90deg, #e7efff, #f3f7ff); }
+  .folder-header:hover {
+    background: linear-gradient(90deg, var(--surface-default), var(--surface-muted));
+  }
   .folder-toggle-icon { transition: transform .15s ease; }
   .table-items thead th {
     font-size: .75rem;
     text-transform: uppercase;
     letter-spacing: .06em;
-    color:#6c757d;
+    color: var(--text-muted);
     white-space: nowrap;
   }
   .table-items tbody td { vertical-align: middle; font-size: .9rem; }
-  .bulk-toolbar { border-bottom: 1px solid #edf0f7; background: #f8fafc; }
-  .bulk-toolbar-active { background: #102a43; color: #fff; }
+  .bulk-toolbar {
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface-muted);
+  }
+  .bulk-toolbar-active {
+    background: var(--brand-primary);
+    color: #fff;
+  }
   .bulk-toolbar-active .btn { border-radius: 999px; }
   .sticky-header-wrapper {
     position: sticky; top: 0; z-index: 9;
@@ -59,7 +69,9 @@
   }
   .item-name-link { font-weight: 600; }
   .item-name-link:hover { text-decoration: underline; }
-  .row-hover-soft tbody tr:hover:not(.folder-header) { background: #f8fbff; }
+  .row-hover-soft tbody tr:hover:not(.folder-header) {
+    background: rgba(148, 163, 184, 0.08);
+  }  
   .floating-scroll-top {
     position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 10; display: none;
   }
@@ -78,13 +90,13 @@
     .table-items tr.folder-header td { display: table-cell; }
 
     .table-items tr.folder-rows {
-      background:#fff;
+      background: var(--surface-default);
       border-bottom: none;
       margin: .6rem .6rem .8rem;
-      border: 1px solid #e9eef5;
+      border: 1px solid var(--border-soft);
       border-radius: 14px;
       overflow: hidden;
-      box-shadow: 0 3px 10px rgba(16,42,67,.04);
+      box-shadow: 0 3px 10px rgba(15, 23, 42, .25);
     }
 
     .table-items tr.folder-rows td {
@@ -101,22 +113,22 @@
       font-size: .72rem;
       text-transform: uppercase;
       letter-spacing: .05em;
-      color:#8a94a6;
+      color: var(--text-muted);
       font-weight: 600;
       flex: 0 0 auto;
     }
 
     /* first column (checkbox) + last column (actions) special */
     .table-items tr.folder-rows td.select-col {
-      background:#f8fafc;
-      border-bottom:1px solid #eef2f7;
+      background: var(--surface-muted);
+      border-bottom: 1px solid var(--border-soft);
       padding: .6rem .9rem;
     }
     .table-items tr.folder-rows td.select-col::before { content:"Select"; }
 
     .table-items tr.folder-rows td.actions-col {
-      background:#f8fafc;
-      border-top:1px solid #eef2f7;
+      background: var(--surface-muted);
+      border-top: 1px solid var(--border-soft);
       padding: .6rem .9rem;
     }
     .table-items tr.folder-rows td.actions-col::before { content:"Actions"; }
@@ -181,7 +193,7 @@
            class="chip text-decoration-none
                   {% if tag_filter == tag.name %}bg-primary text-white border-0{% endif %}">
           <span>{{ tag.name }}</span>
-          <span class="badge rounded-pill bg-light text-muted border">
+          <span class="badge text-muted border">
             {{ tag.count }}
           </span>
         </a>
@@ -299,7 +311,7 @@
               {% set folder_idx = loop.index %}
 
               <!-- Folder header -->
-              <tr class="table-secondary folder-header"
+              <tr class="folder-header"
                   data-folder-group="folder-{{ folder_idx }}"
                   data-folder-key="{{ folder_name }}"
                   style="cursor:pointer;">
