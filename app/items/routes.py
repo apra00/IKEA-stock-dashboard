@@ -646,9 +646,7 @@ def bulk_edit_submit():
         tags_raw = tags_raw.strip()
     tag_names_for_bulk = None  # None => do not touch tags
     if tags_raw is not None:
-        if tags_raw == "":
-            tag_names_for_bulk = []  # explicit clear for all selected
-        else:
+        if tags_raw:
             tag_names_for_bulk = _parse_tag_names(tags_raw)
 
     notify_threshold = _cast_int(notify_threshold_raw)
@@ -707,15 +705,37 @@ def detail(item_id: int):
     }
     range_key = request.args.get("range", "30d")
     days = RANGES.get(range_key, 30)
+
     query = AvailabilitySnapshot.query.filter_by(item_id=item.id)
     if days is not None:
         since = datetime.utcnow() - timedelta(days=days)
         query = query.filter(AvailabilitySnapshot.timestamp >= since)
 
-    history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
+    # All snapshots in ascending order (for chart)
+    chart_history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
 
-    labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in history]
-    stocks = [h.total_stock if h.total_stock is not None else 0 for h in history]
+    # Build "changes only" list from ascending snapshots
+    change_history: list[AvailabilitySnapshot] = []
+    last_stock_sentinel = object()
+    last_stock = last_stock_sentinel
+
+    for snap in chart_history:
+        current_stock = snap.total_stock
+        # First snapshot always included; subsequent only if stock changed
+        if last_stock is last_stock_sentinel or current_stock != last_stock:
+            change_history.append(snap)
+            last_stock = current_stock
+
+    # Keep only the most recent 30 changes (by time)
+    if len(change_history) > 30:
+        change_history = change_history[-30:]
+
+    # Table should show newest first
+    history_for_table = list(reversed(change_history))
+
+    # Chart data still uses *all* snapshots in the range
+    labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in chart_history]
+    stocks = [h.total_stock if h.total_stock is not None else 0 for h in chart_history]
 
     chart_labels = labels
     chart_datasets = [
@@ -731,9 +751,11 @@ def detail(item_id: int):
     return render_template(
         "items/detail.html",
         item=item,
-        history=history,
+        history=history_for_table,     # << table uses filtered, DESC data
         chart_labels=chart_labels,
         chart_datasets=chart_datasets,
+        chart_history=chart_history,   # << for "(X samples)" counter
+        range_key=range_key,           # << template already uses this
         live_data=live_data,
         live_error=live_error,
     )
