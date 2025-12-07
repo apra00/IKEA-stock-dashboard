@@ -10,7 +10,7 @@ Track items, receive alerts, view historical data, and integrate automated check
 
 - 🔍 **Track IKEA products** by product ID  
 - 🏬 **Store-specific or country-wide checks**  
-- 📬 **Stock threshold email alerts**  
+- 📬 **Stock threshold email alerts**  (above/bellow)
 - 📊 **Historical availability charts**  
 - 🧑‍💼 **Admin panel** (user + item management)  
 - 🔐 **Secure webhook** for automated background checks  
@@ -41,7 +41,7 @@ Track items, receive alerts, view historical data, and integrate automated check
 ### 1️⃣ Clone the project
 ```bash
 git clone https://github.com/apra00/IKEA-stock-dashboard.git
-cd repo
+cd IKEA-stock-dashboard
 ```
 
 ### 2️⃣ Python environment
@@ -125,7 +125,7 @@ SMTP_PASSWORD=your-app-password
 After configuring:
 
 - Restart the app
-- Trigger a test notification
+- Trigger a test notification by creating a new item and setting a bellow or above threshold that is already broken
 
 If Gmail blocks the login, go to:
 
@@ -167,7 +167,7 @@ gunicorn -w 4 'app:create_app()'
 2. (Optional) Create a folder  
 3. Add a product by **product ID**  
 4. Choose country + store filters  
-5. Set notification threshold (optional)
+5. Set notification thresholds (optional)
 
 ### 📈 View Item Data
 - Live stock  
@@ -210,27 +210,6 @@ Header: X-API-Key: <WEBHOOK_API_KEY>
 Returns JSON with results.
 
 ---
-
-## 📁 Project Structure (simplified)
-
-```
-app/
-  auth/           Authentication
-  dashboard/      UI & charts
-  items/          Item CRUD & views
-  api/            Webhook endpoints
-  users/          Admin management
-  ikea_service.py Node integration + notifications
-  models.py
-  extensions.py
-
-node/
-  ikea_client.js
-  ikea_stores.js
-```
-
----
-
 ## 🔒 Security
 
 - API key must be sent via **X-API-Key** header  
@@ -248,4 +227,3 @@ MIT (or your chosen license)
 
 ## ❤️ Contributing
 PRs welcome — feel free to extend notifications, add new alerts, integrate with Home Assistant, or improve the UI.
-
