@@ -34,7 +34,7 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True     # not accessible from JS
     SESSION_COOKIE_SAMESITE = "Lax"    # or "Strict" if OK for you
     REMEMBER_COOKIE_HTTPONLY = True
-    PERMANENT_SESSION_LIFETIME = 60 * 60 * 8  # 8 hours, or use timedelta
+    PERMANENT_SESSION_LIFETIME = 60 * 60 * 48  # 8 hours, or use timedelta
 
     def validate(cls):
         if not cls.SECRET_KEY:
