@@ -705,21 +705,19 @@ def detail(item_id: int):
     }
     range_key = request.args.get("range", "30d")
     days = RANGES.get(range_key, 30)
-
     query = AvailabilitySnapshot.query.filter_by(item_id=item.id)
     if days is not None:
         since = datetime.utcnow() - timedelta(days=days)
         query = query.filter(AvailabilitySnapshot.timestamp >= since)
 
-    # All snapshots in ascending order (for chart)
-    chart_history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
+    history = query.order_by(AvailabilitySnapshot.timestamp.asc()).all()
 
     # Build "changes only" list from ascending snapshots
     change_history: list[AvailabilitySnapshot] = []
     last_stock_sentinel = object()
     last_stock = last_stock_sentinel
 
-    for snap in chart_history:
+    for snap in history:
         current_stock = snap.total_stock
         # First snapshot always included; subsequent only if stock changed
         if last_stock is last_stock_sentinel or current_stock != last_stock:
@@ -733,17 +731,142 @@ def detail(item_id: int):
     # Table should show newest first
     history_for_table = list(reversed(change_history))
 
-    # Chart data still uses *all* snapshots in the range
-    labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in chart_history]
-    stocks = [h.total_stock if h.total_stock is not None else 0 for h in chart_history]
+    # Common time labels for chart
+    labels = [h.timestamp.strftime("%Y-%m-%d %H:%M") for h in history]
+
+    # --- Build per-store series from raw_json -----------------------------
+    store_meta: Dict[str, str] = {}          # store_id -> name
+    snap_store_data: List[Dict[str, int]] = []  # per snapshot: store_id -> stock
+
+    for snap in history:
+        per_snap: Dict[str, int] = {}
+        if snap.raw_json:
+            try:
+                entries = json.loads(snap.raw_json)
+            except json.JSONDecodeError:
+                entries = []
+
+            # Guard: raw_json should be a list, but handle dict-shaped just in case
+            if isinstance(entries, dict):
+                # common pattern: { "availabilities": [...] }
+                if "availabilities" in entries and isinstance(entries["availabilities"], list):
+                    entries = entries["availabilities"]
+                else:
+                    # fall back to any list-ish value
+                    entries = list(entries.values())
+
+            if not isinstance(entries, list):
+                entries = []
+
+            for entry in entries:
+                if not entry:
+                    continue
+
+                store_id = None
+                store_name = None
+
+                store_field = entry.get("store")
+                # Some versions return a store object, others a plain string
+                if isinstance(store_field, dict):
+                    store_name = store_field.get("name")
+                    store_id = (
+                        store_field.get("id")
+                        or store_field.get("buCode")
+                        or store_field.get("storeId")
+                    )
+                elif isinstance(store_field, str):
+                    store_name = store_field
+
+                # Additional fallbacks
+                if not store_name:
+                    store_name = entry.get("storeName") or entry.get("store_name")
+
+                if not store_id:
+                    store_id = (
+                        entry.get("storeId")
+                        or entry.get("store_id")
+                        or entry.get("buCode")
+                    )
+
+                # Last resort: use name as id
+                if not store_id and store_name:
+                    store_id = store_name
+
+                if not store_id:
+                    continue
+
+                stock = entry.get("stock")
+                try:
+                    stock_val = int(stock) if stock is not None else None
+                except (TypeError, ValueError):
+                    stock_val = None
+
+                if stock_val is None:
+                    continue
+
+                store_id = str(store_id)
+                per_snap[store_id] = stock_val
+                if store_id not in store_meta:
+                    store_meta[store_id] = store_name or store_id
+
+        snap_store_data.append(per_snap)
 
     chart_labels = labels
-    chart_datasets = [
-        {
-            "label": "Total stock",
-            "data": stocks,
-        }
-    ]
+    chart_datasets: List[Dict[str, Any]] = []
+    store_options: List[Dict[str, Any]] = []
+    selected_store_ids: List[str] = []
+
+    if store_meta:
+        # Build series per store; forward-fill last known value so the chart is continuous
+        store_current_stock: Dict[str, int] = {}
+
+        # Deterministic ordering by store name
+        for store_id, store_name in sorted(store_meta.items(), key=lambda kv: kv[1].lower()):
+            series: List[int] = []
+            last_val: int | None = None
+
+            for per_snap in snap_store_data:
+                if store_id in per_snap and per_snap[store_id] is not None:
+                    last_val = per_snap[store_id]
+                # For the chart we *do not* filter for "changes only":
+                # just repeat the last known value, or 0 if never seen yet.
+                series.append(last_val if last_val is not None else 0)
+
+            if last_val is None:
+                last_val = 0
+
+            store_current_stock[store_id] = last_val
+            chart_datasets.append(
+                {
+                    "label": store_name,
+                    "data": series,
+                    "store_id": store_id,  # used by JS to toggle lines
+                }
+            )
+            store_options.append({"id": store_id, "name": store_name})
+
+        # Default selection: up to three stores with largest *current* stock
+        sorted_by_stock = sorted(
+            store_current_stock.items(),
+            key=lambda kv: (-kv[1], store_meta[kv[0]].lower()),
+        )
+        if len(sorted_by_stock) <= 3:
+            selected_store_ids = [sid for sid, _ in sorted_by_stock]
+        else:
+            selected_store_ids = [sid for sid, _ in sorted_by_stock[:3]]
+
+    else:
+        # Fallback: no raw_json -> keep old "total stock" behaviour
+        stocks = [h.total_stock if h.total_stock is not None else 0 for h in history]
+        chart_labels = labels
+        chart_datasets = [
+            {
+                "label": "Total stock",
+                "data": stocks,
+            }
+        ]
+        store_options = []
+        selected_store_ids = []
 
     # Live per-store availability (does not modify DB)
     live_data, live_error = get_live_availability_for_item(item)
@@ -751,14 +874,17 @@ def detail(item_id: int):
     return render_template(
         "items/detail.html",
         item=item,
-        history=history_for_table,     # << table uses filtered, DESC data
+        history=history_for_table,
         chart_labels=chart_labels,
         chart_datasets=chart_datasets,
-        chart_history=chart_history,   # << for "(X samples)" counter
-        range_key=range_key,           # << template already uses this
         live_data=live_data,
         live_error=live_error,
+        range_key=range_key,
+        chart_history=history,
+        store_options=store_options,
+        selected_store_ids=selected_store_ids,
     )
+
 
 
 @items_bp.route("/<int:item_id>/check", methods=["POST"])

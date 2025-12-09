@@ -1,15 +1,16 @@
 {% extends "base.html" %}
 
 {% block title %}{{ item.name }} – IKEA Availability{% endblock %}
-
 {% block head_extra %}
 <script>
   window.ITEM_HISTORY = {
     labels: {{ chart_labels|tojson }},
-    datasets: {{ chart_datasets|tojson }}
+    datasets: {{ chart_datasets|tojson }},
+    selected_store_ids: {{ selected_store_ids|tojson }}
   };
 </script>
 {% endblock %}
+
 
 {% block content %}
 
@@ -177,7 +178,6 @@
     <strong>
       Historical stock{% if item.store_ids and (item.store_ids.split(',')|length) >= 2 %} by store{% endif %}
     </strong>
-
     <div class="d-flex align-items-center gap-2">
       <small class="text-muted me-1">Range:</small>
       <select id="chart-range" class="form-select form-select-sm" style="width:auto;">
@@ -186,18 +186,48 @@
         <option value="30d" {% if range_key == "30d" %}selected{% endif %}>Last 30d</option>
         <option value="all" {% if range_key == "all" %}selected{% endif %}>All time</option>
       </select>
+    
 
-      <small class="text-muted ms-2">
-        ({{ chart_history|length }} samples)
-      </small>
+      {# Only show the store selector when there are more than 3 stores #}
+      {% if store_options and store_options|length > 3 %}
+        <div class="dropdown">
+          <button class="btn btn-outline-light btn-sm dropdown-toggle"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false">
+            Stores
+          </button>
+          <div class="dropdown-menu dropdown-menu-end p-2 small" style="min-width: 220px;">
+            {% for store in store_options %}
+              <div class="form-check">
+                <input class="form-check-input store-filter-checkbox"
+                      type="checkbox"
+                      value="{{ store.id }}"
+                      id="store-filter-{{ loop.index }}"
+                      {% if store.id in selected_store_ids %}checked{% endif %}>
+                <label class="form-check-label" for="store-filter-{{ loop.index }}">
+                  {{ store.name }}
+                </label>
+              </div>
+            {% endfor %}
+            <div class="text-muted small mt-2">
+              Max 3 stores at a time.
+            </div>
+          </div>
+        </div>
+      {% endif %}
     </div>
+
+    <small class="text-muted ms-2">
+      ({{ chart_history|length }} samples)
+    </small>
+    
   </div>
 
   <div class="card-body">
     <canvas id="stockHistoryChart" height="120"></canvas>
   </div>
 </div>
-
 
 <!-- HISTORY TABLE -->
 <div class="card shadow-sm">
