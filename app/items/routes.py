@@ -523,14 +523,13 @@ def edit_item(item_id: int):
 @items_bp.route("/<int:item_id>/delete", methods=["POST"])
 @login_required
 def delete_item(item_id):
-    if not _require_edit_permission():
-        return redirect(url_for("items.list_items"))
-
     item = Item.query.get_or_404(item_id)
 
     if not _require_edit_permission(item):
         flash("You are not allowed to delete this item.", "danger")
         return redirect(url_for("items.list_items"))
+    
+    AvailabilitySnapshot.query.filter_by(item_id=item.id).delete(synchronize_session=False)
 
     user_id = item.user_id
     db.session.delete(item)
